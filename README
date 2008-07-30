@@ -1,3 +1,7 @@
+* Requirements
+MySQL 5.1 and higher. ucs2_unicode_ci collation is required to be available.
+
+
 * INSTALL
 If you check out the source from the repository, you need autoconf, automake and libtool 
 to build the plugin. Type as following:
