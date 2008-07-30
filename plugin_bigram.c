@@ -42,14 +42,8 @@ static int bigram_parser_parse(MYSQL_FTPARSER_PARAM *param)
   size_t wbuffer_len;
   
   // calculate mblen and malloc.
-  start = param->doc;
-  while(start < docend){
-    uint (*mbcharlen)(CHARSET_INFO * __attribute__((unused)), uint) = cs->cset->mbcharlen;
-    int step = (*mbcharlen)(cs, *(uchar*)start);
-    start += step;
-    if(step==0) break;
-    mblen++;
-  }
+  uint (*numchars)(CHARSET_INFO * __attribute__((unused)), const char*, const char*) = cs->cset->numchars;
+  mblen = (*numchars)(cs, *(param->doc), *(param->doc+param->length));
   buffer_len = uc->mbmaxlen * mblen;
   buffer = (char*)my_malloc(buffer_len, MYF(0));
   
