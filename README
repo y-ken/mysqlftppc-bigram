@@ -36,3 +36,4 @@ collates with unicode collation. The encoding conversion is done automatically.
 
 * TODO
 - support of boolean mode syntax
+- rewrite to consume less memory
