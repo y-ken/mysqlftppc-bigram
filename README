@@ -7,6 +7,8 @@ If you check out the source from the repository, you need autoconf, automake and
 to build the plugin. Type as following:
 $ aclocal
 $ libtoolize --automake
+$ automake --add-missing
+$ touch INSTALL NEWS AUTHORS ChangeLog
 $ automake
 $ autoconf
 
