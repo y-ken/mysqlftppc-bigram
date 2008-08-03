@@ -19,8 +19,8 @@ pkglibdir=$(libdir)/mysql
 pkgplugindir=$(pkglibdir)/plugin
 INCLUDES= -I$(top_builddir)/include -I$(top_srcdir)/include -I$(includedir) -I$(includedir)/mysql
 #noinst_LTLIBRARIES= mypluglib.la
-pkgplugin_LTLIBRARIES= libbigram.la
-libbigram_la_SOURCES= plugin_bigram.c
-libbigram_la_LDFLAGS= -module -rpath $(pkgplugindir)
-libbigram_la_CFLAGS= -DMYSQL_DYNAMIC_PLUGIN
+pkgplugin_LTLIBRARIES= libftbigram.la
+libftbigram_la_SOURCES= plugin_bigram.c
+libftbigram_la_LDFLAGS= -module -rpath $(pkgplugindir)
+libftbigram_la_CFLAGS= -DMYSQL_DYNAMIC_PLUGIN
 

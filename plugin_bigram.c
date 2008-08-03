@@ -35,83 +35,97 @@ static int bigram_parser_parse(MYSQL_FTPARSER_PARAM *param)
   char *end, *start, *next, *docend= param->doc + param->length;
   CHARSET_INFO *cs = param->cs;
   CHARSET_INFO *uc = get_charset(128,MYF(0)); // my_charset_ucs2_unicode_ci for unicode collation
-  uint mblen=0;
-  char*  buffer;
-  size_t buffer_len;
-  uchar* wbuffer;
-  size_t wbuffer_len;
+  uchar   ustr[2], gram_buffer[6];
+  uchar*  w_buffer;
+  size_t w_buffer_len;
   
-  // calculate mblen and malloc.
-  uint (*numchars)(CHARSET_INFO * __attribute__((unused)), const char*, const char*) = cs->cset->numchars;
-  mblen = (*numchars)(cs, *(param->doc), *(param->doc+param->length));
-  buffer_len = uc->mbmaxlen * mblen;
-  buffer = (char*)my_malloc(buffer_len, MYF(0));
+  // alias
+  my_charset_conv_mb_wc mb_wc = cs->cset->mb_wc;
+  my_charset_conv_wc_mb wc_mb = uc->cset->wc_mb;
   
-  // convert into ucs2
-  char* wpos=buffer;
-  start = param->doc;
-  while(start < docend){
-    my_wc_t wc;
-    my_charset_conv_mb_wc mb_wc = cs->cset->mb_wc;
-    my_charset_conv_wc_mb wc_mb = uc->cset->wc_mb;
-    int cnvres = 0;
-    
-    cnvres = (*mb_wc)(cs, &wc, (uchar*)start, docend);
-    if(cnvres > 0){
-      start += cnvres;
-    }else if(cnvres == MY_CS_ILSEQ){
-      start++;
-      wc = '?';
-    }else if(cnvres > MY_CS_TOOSMALL){
-      start += (-cnvres);
-      wc = '?';
-    }else{
-      break;
-    }
-    cnvres = (*wc_mb)(uc, wc, (uchar*)wpos, (uchar*)(buffer+buffer_len));
-    if(cnvres > 0){
-      wpos += cnvres;
-    }else{
-      break;
-    }
-  }
+  // malloc working space.
+  w_buffer_len    = uc->coll->strnxfrmlen(uc, 1);
+  w_buffer        = (uchar*)my_malloc(w_buffer_len, MYF(0));
+  // charset conversion working var.
+  my_wc_t wc;
   
-  // get by its weight
-  wbuffer_len = uc->coll->strnxfrmlen(uc, mblen);
-  wbuffer = (uchar*)my_malloc(wbuffer_len, MYF(0));
-  wbuffer_len = uc->coll->strnxfrm(uc, wbuffer, wbuffer_len, buffer, buffer_len);
-  // trim() because mysql binary image has padding.
-  int c,mark;
-  uint t_res= uc->sort_order_big[0][0x20 * uc->sort_order[0]];
-  for(mark=0,c=0; c<wbuffer_len; c+=2){
-    if(*(wbuffer+c) == t_res>>8 || *(wbuffer+c+1) == t_res&0xFF){
-      // it is space.
-    }else{
-      mark = c;
-    }
-  }
-  wbuffer_len = mark+2;
-  // unit of wbuffer is always (uchar * 2)
-  
+  int qmode = param->mode;
   // buffer is to be free-ed
   param->flags = MYSQL_FTFLAGS_NEED_COPY;
+  MYSQL_FTPARSER_BOOLEAN_INFO bool_info_must ={ FT_TOKEN_WORD, 1, 0, 0, 0, ' ', 0 };
   
-  if(param->mode == MYSQL_FTPARSER_FULL_BOOLEAN_INFO){
-    MYSQL_FTPARSER_BOOLEAN_INFO bool_info_must ={ FT_TOKEN_WORD, 1, 0, 0, 0, ' ', 0 };
-    int pos=0;
-    for(pos=0;pos<wbuffer_len-2;pos+=2){
-      param->mysql_add_word(param, wbuffer + pos * sizeof(uchar), 4 * sizeof(uchar), &bool_info_must);
-      param->mode = MYSQL_FTPARSER_WITH_STOPWORDS;
+  int ct=0;
+  int wpos=0;
+  int wlen=0;
+  char *rpos = param->doc;
+  while(rpos < param->doc + param->length){
+    if(wpos<wlen){
+      // we can use that weight
+    }else{
+      int cnvres = (*mb_wc)(cs, &wc, (uchar*)rpos, docend);
+      if(cnvres > 0){
+        rpos += cnvres;
+      }else if(cnvres == MY_CS_ILSEQ){
+        rpos++;
+        wc = '?';
+      }else if(cnvres > MY_CS_TOOSMALL){
+        rpos += (-cnvres);
+        wc = '?';
+      }else{
+        break;
+      }
+      cnvres = (*wc_mb)(uc, wc, (uchar*)ustr, (uchar*)(ustr+2));
+      if(cnvres > 0){
+        // ok
+      }else{
+        break;
+      }
+      
+      wlen=uc->coll->strnxfrm(uc, w_buffer, w_buffer_len, ustr, (size_t)2);
+      // trim() because mysql binary image has padding.
+      int c,mark;
+      uint t_res= uc->sort_order_big[0][0x20 * uc->sort_order[0]];
+      for(mark=0,c=0; c<wlen; c+=2){
+        if(*(w_buffer+c) == t_res>>8 || *(w_buffer+c+1) == t_res&0xFF){
+          // it is space or padding.
+        }else{
+          mark = c;
+        }
+      }
+      wlen = mark+2;
+      wpos = 0;
     }
-  }else{
-    int pos=0;
-    for(pos=0;pos<wbuffer_len-2;pos+=2){
-      param->mysql_add_word(param, wbuffer + pos * sizeof(uchar), 4 * sizeof(uchar), NULL);
+    
+    if(ct%2==0){
+      gram_buffer[0] = w_buffer[wpos];
+      gram_buffer[1] = w_buffer[wpos+1];
+      gram_buffer[4] = w_buffer[wpos];
+      gram_buffer[5] = w_buffer[wpos+1];
+      
+      if(ct!=0){
+        if(qmode == MYSQL_FTPARSER_FULL_BOOLEAN_INFO){
+          param->mysql_add_word(param, gram_buffer+2, 4, &bool_info_must);
+          param->mode = MYSQL_FTPARSER_WITH_STOPWORDS;
+        }else{
+          param->mysql_add_word(param, gram_buffer+2, 4, NULL);
+        }
+      }
+    }else{
+      gram_buffer[2] = w_buffer[wpos];
+      gram_buffer[3] = w_buffer[wpos+1];
+      
+      if(qmode == MYSQL_FTPARSER_FULL_BOOLEAN_INFO){
+        param->mysql_add_word(param, gram_buffer, 4, &bool_info_must);
+        param->mode = MYSQL_FTPARSER_WITH_STOPWORDS;
+      }else{
+        param->mysql_add_word(param, gram_buffer, 4, NULL);
+      }
     }
+    ct++;
+    wpos+=2;
   }
   
-  my_no_flags_free(buffer);
-  my_no_flags_free(wbuffer);
+  my_no_flags_free(w_buffer);
   return(0);
 }
 
