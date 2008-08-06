@@ -6,6 +6,8 @@
 
 #include <mysql/plugin.h>
 
+#include "ftbool.h"
+
 #if !defined(__attribute__) && (defined(__cplusplus) || !defined(__GNUC__)  || __GNUC__ == 2 && __GNUC_MINOR__ < 8)
 #define __attribute__(A)
 #endif
@@ -32,54 +34,115 @@ static int bigram_parser_deinit(MYSQL_FTPARSER_PARAM *param __attribute__((unuse
 
 static int bigram_parser_parse(MYSQL_FTPARSER_PARAM *param)
 {
-  char *end, *start, *next, *docend= param->doc + param->length;
+  char *rpos, *docend= param->doc + param->length;
   CHARSET_INFO *cs = param->cs;
   CHARSET_INFO *uc = get_charset(128,MYF(0)); // my_charset_ucs2_unicode_ci for unicode collation
   uchar   ustr[2], gram_buffer[6];
   uchar*  w_buffer;
   size_t w_buffer_len;
   
-  // alias
-  my_charset_conv_mb_wc mb_wc = cs->cset->mb_wc;
-  my_charset_conv_wc_mb wc_mb = uc->cset->wc_mb;
-  
   // malloc working space.
   w_buffer_len    = uc->coll->strnxfrmlen(uc, 1);
   w_buffer        = (uchar*)my_malloc(w_buffer_len, MYF(0));
-  // charset conversion working var.
-  my_wc_t wc;
   
   int qmode = param->mode;
   // buffer is to be free-ed
   param->flags = MYSQL_FTFLAGS_NEED_COPY;
   MYSQL_FTPARSER_BOOLEAN_INFO bool_info_must ={ FT_TOKEN_WORD, 1, 0, 0, 0, ' ', 0 };
   
+  int context=CTX_CONTROL;
+  int depth=0;
+  MYSQL_FTPARSER_BOOLEAN_INFO instinfo;
+  MYSQL_FTPARSER_BOOLEAN_INFO baseinfos[16];
+  instinfo = baseinfos[0] = bool_info_must;
+  
   int ct=0;
   int wpos=0;
   int wlen=0;
-  char *rpos = param->doc;
+  rpos = param->doc;
   while(rpos < param->doc + param->length){
-    if(wpos<wlen){
+    if(wpos < wlen){
       // we can use that weight
     }else{
-      int cnvres = (*mb_wc)(cs, &wc, (uchar*)rpos, docend);
-      if(cnvres > 0){
-        rpos += cnvres;
-      }else if(cnvres == MY_CS_ILSEQ){
-        rpos++;
-        wc = '?';
-      }else if(cnvres > MY_CS_TOOSMALL){
-        rpos += (-cnvres);
-        wc = '?';
-      }else{
-        break;
+      int broken=1;
+      while(rpos < param->doc + param->length){
+        my_wc_t wc;
+        int convres;
+        SEQFLOW sf = ctxscan(cs, rpos, docend, &wc, &convres, context);
+        if(convres > 0){
+          rpos += convres;
+        }else if(convres == MY_CS_ILSEQ){
+          rpos++;
+          wc = '?';
+        }else if(convres > MY_CS_TOOSMALL){
+          rpos += (-convres);
+          wc = '?';
+        }else{
+          break;
+        }
+        convres = uc->cset->wc_mb(uc, wc, (uchar*)ustr, (uchar*)(ustr+2));
+        if(convres <= 0){
+          break;
+        }
+        
+        if(qmode == MYSQL_FTPARSER_FULL_BOOLEAN_INFO){
+          if(sf==SF_TRUNC) sf=SF_CHAR; // trunc will not be supported
+          
+          if(sf==SF_ESCAPE){
+            context |= CTX_ESCAPE;  // ESCAPE ON
+            context |= CTX_CONTROL; // CONTROL ON
+          }else{
+            context &= ~CTX_ESCAPE; // ESCAPE OFF
+            if(sf == SF_CHAR){
+              context &= ~CTX_CONTROL; // CONTROL OFF
+            }else{
+              context |= CTX_CONTROL; // CONTROL ON
+            }
+            
+            if(sf == SF_QUOTE_START) context |= CTX_QUOTE;
+            if(sf == SF_QUOTE_END)   context &= ~CTX_QUOTE;
+            if(sf == SF_LEFT_PAR){
+              instinfo = baseinfos[depth];
+              depth++;
+              if(depth>16) depth=16;
+              baseinfos[depth] = instinfo;
+              instinfo.type = FT_TOKEN_LEFT_PAREN;
+              param->mysql_add_word(param, gram_buffer, 0, &instinfo);
+            }
+            if(sf == SF_RIGHT_PAR){
+              instinfo.type = FT_TOKEN_RIGHT_PAREN;
+              param->mysql_add_word(param, gram_buffer, 0, &instinfo);
+              depth--;
+              if(depth<0) depth=0;
+            }
+            if(sf == SF_PLUS){
+              instinfo.yesno = 1;
+            }
+            if(sf == SF_MINUS){
+              instinfo.yesno = -1;
+            }
+            if(sf == SF_PLUS) instinfo.weight_adjust = 1;
+            if(sf == SF_MINUS) instinfo.weight_adjust = -1;
+            if(sf == SF_WASIGN){
+              instinfo.wasign = -1;
+            }
+          }
+          if(sf == SF_WHITE || sf == SF_QUOTE_END || sf == SF_LEFT_PAR || sf == SF_RIGHT_PAR){
+            instinfo = baseinfos[depth];
+          }
+          if(sf == SF_CHAR){
+            broken = 0;
+            break; // emit char
+          }else{
+            param->mode = MYSQL_FTPARSER_FULL_BOOLEAN_INFO; // reset phrase query
+            ct = 0;
+          }
+        }else{
+          broken = 0;
+          break; // emit char
+        }
       }
-      cnvres = (*wc_mb)(uc, wc, (uchar*)ustr, (uchar*)(ustr+2));
-      if(cnvres > 0){
-        // ok
-      }else{
-        break;
-      }
+      if(broken) break;
       
       wlen=uc->coll->strnxfrm(uc, w_buffer, w_buffer_len, ustr, (size_t)2);
       // trim() because mysql binary image has padding.
@@ -104,7 +167,7 @@ static int bigram_parser_parse(MYSQL_FTPARSER_PARAM *param)
       
       if(ct!=0){
         if(qmode == MYSQL_FTPARSER_FULL_BOOLEAN_INFO){
-          param->mysql_add_word(param, gram_buffer+2, 4, &bool_info_must);
+          param->mysql_add_word(param, gram_buffer+2, 4, &instinfo);
           param->mode = MYSQL_FTPARSER_WITH_STOPWORDS;
         }else{
           param->mysql_add_word(param, gram_buffer+2, 4, NULL);
@@ -115,7 +178,7 @@ static int bigram_parser_parse(MYSQL_FTPARSER_PARAM *param)
       gram_buffer[3] = w_buffer[wpos+1];
       
       if(qmode == MYSQL_FTPARSER_FULL_BOOLEAN_INFO){
-        param->mysql_add_word(param, gram_buffer, 4, &bool_info_must);
+        param->mysql_add_word(param, gram_buffer, 4, &instinfo);
         param->mode = MYSQL_FTPARSER_WITH_STOPWORDS;
       }else{
         param->mysql_add_word(param, gram_buffer, 4, NULL);

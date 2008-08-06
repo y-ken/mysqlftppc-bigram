@@ -36,5 +36,3 @@ Both natural language mode and boolean mode use unicode internally, and
 collates with unicode collation. The encoding conversion is done automatically.
 
 
-* TODO
-- support of boolean mode syntax
