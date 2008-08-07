@@ -133,7 +133,7 @@ static int bigram_parser_parse(MYSQL_FTPARSER_PARAM *param)
           if(sf == SF_CHAR){
             broken = 0;
             break; // emit char
-          }else{
+          }else if(sf != SF_ESCAPE){
             param->mode = MYSQL_FTPARSER_FULL_BOOLEAN_INFO; // reset phrase query
             ct = 0;
           }
@@ -149,7 +149,7 @@ static int bigram_parser_parse(MYSQL_FTPARSER_PARAM *param)
       int c,mark;
       uint t_res= uc->sort_order_big[0][0x20 * uc->sort_order[0]];
       for(mark=0,c=0; c<wlen; c+=2){
-        if(*(w_buffer+c) == t_res>>8 || *(w_buffer+c+1) == t_res&0xFF){
+        if(*(w_buffer+c) == t_res>>8 && *(w_buffer+c+1) == t_res&0xFF){
           // it is space or padding.
         }else{
           mark = c;
