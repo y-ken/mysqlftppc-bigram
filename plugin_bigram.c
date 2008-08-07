@@ -48,13 +48,13 @@ static int bigram_parser_parse(MYSQL_FTPARSER_PARAM *param)
   int qmode = param->mode;
   // buffer is to be free-ed
   param->flags = MYSQL_FTFLAGS_NEED_COPY;
-  MYSQL_FTPARSER_BOOLEAN_INFO bool_info_must ={ FT_TOKEN_WORD, 1, 0, 0, 0, ' ', 0 };
+  MYSQL_FTPARSER_BOOLEAN_INFO bool_info_may ={ FT_TOKEN_WORD, 0, 0, 0, 0, ' ', 0 };
   
   int context=CTX_CONTROL;
   int depth=0;
   MYSQL_FTPARSER_BOOLEAN_INFO instinfo;
   MYSQL_FTPARSER_BOOLEAN_INFO baseinfos[16];
-  instinfo = baseinfos[0] = bool_info_must;
+  instinfo = baseinfos[0] = bool_info_may;
   
   int ct=0;
   int wpos=0;
@@ -101,7 +101,7 @@ static int bigram_parser_parse(MYSQL_FTPARSER_PARAM *param)
             
             if(sf == SF_QUOTE_START) context |= CTX_QUOTE;
             if(sf == SF_QUOTE_END)   context &= ~CTX_QUOTE;
-            if(sf == SF_LEFT_PAR){
+            if(sf == SF_LEFT_PAREN){
               instinfo = baseinfos[depth];
               depth++;
               if(depth>16) depth=16;
@@ -109,7 +109,7 @@ static int bigram_parser_parse(MYSQL_FTPARSER_PARAM *param)
               instinfo.type = FT_TOKEN_LEFT_PAREN;
               param->mysql_add_word(param, gram_buffer, 0, &instinfo);
             }
-            if(sf == SF_RIGHT_PAR){
+            if(sf == SF_RIGHT_PAREN){
               instinfo.type = FT_TOKEN_RIGHT_PAREN;
               param->mysql_add_word(param, gram_buffer, 0, &instinfo);
               depth--;
@@ -127,7 +127,7 @@ static int bigram_parser_parse(MYSQL_FTPARSER_PARAM *param)
               instinfo.wasign = -1;
             }
           }
-          if(sf == SF_WHITE || sf == SF_QUOTE_END || sf == SF_LEFT_PAR || sf == SF_RIGHT_PAR){
+          if(sf == SF_WHITE || sf == SF_QUOTE_END || sf == SF_LEFT_PAREN || sf == SF_RIGHT_PAREN){
             instinfo = baseinfos[depth];
           }
           if(sf == SF_CHAR){

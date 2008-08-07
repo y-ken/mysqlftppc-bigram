@@ -13,8 +13,8 @@ SEQFLOW ctxscan(CHARSET_INFO *cs, char *src, char *src_end, my_wc_t *dst, int *r
             return SF_CHAR;
         }
         if(*dst=='"') return SF_QUOTE_START;
-        if(*dst=='(') return SF_LEFT_PAR;
-        if(*dst==')') return SF_RIGHT_PAR;
+        if(*dst=='(') return SF_LEFT_PAREN;
+        if(*dst==')') return SF_RIGHT_PAREN;
         if(my_isspace(cs, *src)) return SF_WHITE;
         
         if(context & CTX_CONTROL){
