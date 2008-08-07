@@ -211,7 +211,7 @@ mysql_declare_plugin(ft_bigram)
   PLUGIN_LICENSE_BSD,
   bigram_parser_plugin_init,  /* init function (when loaded)     */
   bigram_parser_plugin_deinit,/* deinit function (when unloaded) */
-  0x0001,                     /* version                         */
+  0x0010,                     /* version                         */
   NULL,                       /* status variables                */
   NULL,                       /* system variables                */
   NULL
