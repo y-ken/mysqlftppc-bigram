@@ -2,22 +2,6 @@
 MySQL 5.1 and higher. ucs2_unicode_ci collation is required to be available.
 
 
-* INSTALL
-If you check out the source from the repository, you need autoconf, automake and libtool 
-to build the plugin. Type as following:
-$ aclocal
-$ libtoolize --automake
-$ automake --add-missing
-$ touch INSTALL NEWS AUTHORS ChangeLog
-$ automake
-$ autoconf
-
-Then you start a normal installation process.
-$ ./configure --prefix=/path/to/mysql/install/path
-$ make
-# make install
-
-
 * SPEC
 This plugin implements bi-gram tokenizer. As of MySQL SQL syntax, you can
 query in natural langauge mode or in boolean mode.
