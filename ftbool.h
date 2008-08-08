@@ -1,5 +1,5 @@
-#include <mysql/my_global.h>
-#include <mysql/m_ctype.h>
+#include <my_global.h>
+#include <m_ctype.h>
 
 // char sequence flow control definitions
 typedef enum seqflow {

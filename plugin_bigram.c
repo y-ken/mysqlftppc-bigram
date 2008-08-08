@@ -1,12 +1,13 @@
 #include <stdlib.h>
 #include <ctype.h>
-#include <mysql/my_global.h>
-#include <mysql/m_ctype.h>
-#include <mysql/my_sys.h>
-
-#include <mysql/plugin.h>
 
 #include "ftbool.h"
+
+// mysql headers
+#include <my_global.h>
+#include <m_ctype.h>
+#include <my_sys.h>
+#include <plugin.h>
 
 #if !defined(__attribute__) && (defined(__cplusplus) || !defined(__GNUC__)  || __GNUC__ == 2 && __GNUC_MINOR__ < 8)
 #define __attribute__(A)
