@@ -1,6 +1,7 @@
 * Requirements
-MySQL 5.1 and higher. ucs2_unicode_ci collation is required to be available.
-
+MySQL 5.1 and higher. If you want to use collation, you'll need that 
+collation in mysqld. If you want to use unicode normalization, utf8 charset
+must be built in your mysqld.
 
 * SPEC
 This plugin implements bi-gram tokenizer. As of MySQL SQL syntax, you can
