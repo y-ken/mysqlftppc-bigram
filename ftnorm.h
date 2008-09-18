@@ -5,4 +5,4 @@
  * @param dst_capacity normalized UTF-8 string length (byte length)
  * @param dst_used the length will be written
  */
-int uni_normalize(char* src, size_t src_len, char* dst, size_t dst_capacity, size_t *dst_used, int mode);
+char* uni_normalize(char* src, size_t src_len, char* dst, size_t dst_capacity, size_t *dst_used, int mode, int* status);

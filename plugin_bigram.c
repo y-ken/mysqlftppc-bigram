@@ -108,16 +108,18 @@ static int bigram_parser_parse(MYSQL_FTPARSER_PARAM *param)
     size_t nm_used=0;
     nm_length = feed_length+32;
     nm = my_malloc(nm_length, MYF(MY_WME));
+    int status = 0;
     int mode = 1;
     if(strcmp(bigram_unicode_normalize, "C")==0) mode = 4;
     if(strcmp(bigram_unicode_normalize, "D")==0) mode = 2;
     if(strcmp(bigram_unicode_normalize, "KC")==0) mode = 5;
     if(strcmp(bigram_unicode_normalize, "KD")==0) mode = 3;
     if(strcmp(bigram_unicode_normalize, "FCD")==0) mode = 6;
-    if(uni_normalize(feed, feed_length, nm, nm_length, &nm_used, mode)!=0){
+    nm = uni_normalize(feed, feed_length, nm, nm_length, &nm_used, mode, &status);
+    if(status < 0){
        nm_length=nm_used;
        nm = my_realloc(nm, nm_length, MYF(MY_WME));
-       uni_normalize(feed, feed_length, nm, nm_length, &nm_used, mode);
+       nm = uni_normalize(feed, feed_length, nm, nm_length, &nm_used, mode, &status);
     }
     if(cv_length){
       cv = my_realloc(cv, nm_used, MYF(MY_WME));
@@ -299,20 +301,41 @@ static int bigram_parser_parse(MYSQL_FTPARSER_PARAM *param)
       if(broken) break;
       
       if(collator){
+        CHARSET_INFO* uc;
         convres = collator->cset->wc_mb(collator, wc, ustr, ustr+2);
         if(convres <= 0) break;
         wlen=collator->coll->strnxfrm(collator, w_buffer, w_buffer_len, ustr, (size_t)2);
+        
         // trim() because mysql binary image has padding.
-        int c,mark;
-        uint t_res= collator->sort_order_big[0][0x20 * collator->sort_order[0]];
-        for(mark=0,c=0; c<wlen; c+=2){
+        uc = get_charset(128, MYF(0));
+        if(collator->coll->strnxfrm == uc->coll->strnxfrm){
+          int c,mark;
+          uint t_res= collator->sort_order_big[0][0x20 * collator->sort_order[0]];
+          for(mark=0,c=0; c<wlen; c+=2){
             if((*(w_buffer+c) == (t_res>>8)) && (*(w_buffer+c+1) == (t_res&0xFF))){
               // it is space or padding.
             }else{
               mark = c;
             }
+          }
+          wlen = mark+2;
         }
-        wlen = mark+2;
+        int ucs2col=0;
+        uc = get_charset(35, MYF(0));
+        if(collator->coll->strnxfrm == uc->coll->strnxfrm) ucs2col=1;
+        uc = get_charset(90, MYF(0));
+        if(collator->coll->strnxfrm == uc->coll->strnxfrm) ucs2col=1;
+        if(ucs2col){
+          int c,mark;
+          for(mark=0,c=0; c<wlen; c++){
+            if(*(w_buffer+c)==' '){
+              // it is space or padding.
+            }else{
+              mark = c;
+            }
+          }
+          wlen = mark+1;
+        }
         wpos = 0;
       }
     }
