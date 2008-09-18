@@ -28,13 +28,13 @@ int uni_normalize(char* src, size_t src_len, char* dst, size_t dst_capacity, siz
     *dst_used = 0;
     // convert UTF-8 -> UChar
     s_alloc = (int32_t)src_len;
-    s = (UChar*)my_malloc(s_alloc, MYF(MY_WME));
+    s = (UChar*)my_malloc(sizeof(UChar)*s_alloc, MYF(MY_WME));
     if(!s) return -1;
     ustatus = 0;
     u_strFromUTF8(s, s_alloc, &s_len, src, (int32_t)src_len, &ustatus);
     if(s_alloc < s_len || U_FAILURE(ustatus)){
       s_alloc = s_len;
-      s = (UChar*)my_realloc(s, s_alloc, MYF(MY_WME));
+      s = (UChar*)my_realloc(s, sizeof(UChar)*s_alloc, MYF(MY_WME));
       if(s){
           ustatus = 0;
           u_strFromUTF8(s, s_alloc, &s_len, src, (int32_t)src_len, &ustatus);
@@ -49,12 +49,12 @@ int uni_normalize(char* src, size_t src_len, char* dst, size_t dst_capacity, siz
     }
     // normalize
     d_alloc = s_len + 32;
-    d = (UChar*)my_malloc(d_alloc, MYF(MY_WME));
+    d = (UChar*)my_malloc(sizeof(UChar)*d_alloc, MYF(MY_WME));
     if(!d) return -1;
     d_len = unorm_normalize(s, s_len, umode, 0, d, d_alloc, &ustatus);
     while(ustatus == U_BUFFER_OVERFLOW_ERROR){
         d_alloc = d_alloc*2;
-        d = (UChar*)my_realloc(d, d_alloc, MYF(MY_WME));
+        d = (UChar*)my_realloc(d, sizeof(UChar)*d_alloc, MYF(MY_WME));
         if(!d){
             status = -1;
             break;
