@@ -86,7 +86,7 @@ static int bigram_parser_parse(MYSQL_FTPARSER_PARAM *param)
   char* cv;
   size_t cv_length=0;
   
-  if(strcmp("utf8", cs->csname)!=0 && strcmp(bigram_unicode_normalize, "NONE")!=0){
+  if(strcmp("utf8", cs->csname)!=0 && strcmp(bigram_unicode_normalize, "OFF")!=0){
     uc = get_charset(33,MYF(0)); // my_charset_utf8_general_ci for utf8 conversion
   }
   
@@ -102,7 +102,7 @@ static int bigram_parser_parse(MYSQL_FTPARSER_PARAM *param)
   
 #if HAVE_ICU
   // normalize
-  if(strcmp(bigram_unicode_normalize, "NONE")!=0){
+  if(strcmp(bigram_unicode_normalize, "OFF")!=0){
     char* nm;
     size_t nm_length=0;
     size_t nm_used=0;
@@ -389,20 +389,19 @@ int bigram_unicode_normalize_check(MYSQL_THD thd, struct st_mysql_sys_var *var, 
     
     str = value->val_str(value,buf,&len);
     if(!str) return -1;
+    *(const char**)save=str;
     if(!get_charset(33,MYF(0))) return -1; // If you don't have utf8 codec in mysql, it fails
     if(len==1){
-        if(str[0]=='C'){ *(const char**)save=str; return 0;}
-        if(str[0]=='D'){ *(const char**)save=str; return 0;}
+        if(str[0]=='C'){ return 0;}
+        if(str[0]=='D'){ return 0;}
     }
     if(len==2){
-        if(str[0]=='K' && str[1]=='C'){ *(const char**)save=str; return 0;}
-        if(str[0]=='K' && str[1]=='D'){ *(const char**)save=str; return 0;}
+        if(str[0]=='K' && str[1]=='C'){ return 0;}
+        if(str[0]=='K' && str[1]=='D'){ return 0;}
     }
     if(len==3){
-        if(str[0]=='F' && str[1]=='C' && str[2]=='D'){ *(const char**)save=str; return 0;}
-    }
-    if(len==4){
-        if(str[0]=='N' && str[1]=='O' && str[2]=='N' && str[3]=='E'){ *(const char**)save=str; return 0;}
+        if(str[0]=='F' && str[1]=='C' && str[2]=='D'){ return 0;}
+        if(str[0]=='O' && str[1]=='F' && str[2]=='F'){ return 0;}
     }
     return -1;
 }
@@ -477,13 +476,13 @@ int bigram_collation_check(MYSQL_THD thd, struct st_mysql_sys_var *var, void *sa
 }
 static MYSQL_SYSVAR_STR(normalization, bigram_unicode_normalize,
   PLUGIN_VAR_RQCMDARG | PLUGIN_VAR_MEMALLOC,
-  "Set unicode normalization (NONE, C, D, KC, KD, FCD)",
-  bigram_unicode_normalize_check, NULL, "NONE");
+  "Set unicode normalization (OFF, C, D, KC, KD, FCD)",
+  bigram_unicode_normalize_check, NULL, "OFF");
 
 static MYSQL_SYSVAR_STR(collation, bigram_collation,
   PLUGIN_VAR_RQCMDARG | PLUGIN_VAR_MEMALLOC,
-  "Set unicode collation mode (none, unicode, general, etc.)",
-  bigram_collation_check, NULL, "no");
+  "Set unicode collation mode (OFF, unicode, general, etc.)",
+  bigram_collation_check, NULL, "OFF");
 
 static struct st_mysql_sys_var* bigram_system_variables[]= {
   MYSQL_SYSVAR(collation),
