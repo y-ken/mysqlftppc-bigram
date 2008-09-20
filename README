@@ -1,6 +1,5 @@
 * Requirements
-MySQL 5.1 and higher. If you want to use collation, you'll need that 
-collation in mysqld. If you want to use unicode normalization, utf8 charset
+MySQL 5.1 and higher. If you want to use unicode normalization, utf8 charset
 must be built in your mysqld.
 
 * SPEC
@@ -15,8 +14,5 @@ You can only pass a sentence and get a result set according to the similarity.
 Boolean mode of n-gram is easy to understand. You can specify which sentence
 to be present or not. You can't use trunc operator because it was impossible
 to use prefix match in the MySQL index when the index is bi-gram.
-
-Both natural language mode and boolean mode use unicode internally, and
-collates with unicode collation. The encoding conversion is done automatically.
 
 
