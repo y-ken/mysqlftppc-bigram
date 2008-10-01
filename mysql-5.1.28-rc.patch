@@ -1,0 +1,45 @@
+--- mysql-5.1.28-rc/storage/myisam/ft_boolean_search.c.orig	2008-08-29 00:41:07.000000000 +0900
++++ mysql-5.1.28-rc/storage/myisam/ft_boolean_search.c	2008-09-28 03:51:07.361400000 +0900
+@@ -192,6 +192,13 @@
+   float weight= (float)
+         (info->wasign ? nwghts : wghts)[(r>5)?5:((r<-5)?-5:r)];
+ 
++  if(word_len>0 && (param->flags & MYSQL_FTFLAGS_NEED_COPY)){
++    char *ptr;
++    ptr=alloc_root(&ftb_param->ftb->mem_root, word_len);
++    memcpy(ptr,word,word_len);
++    word=ptr;
++  }
++
+   switch (info->type) {
+     case FT_TOKEN_WORD:
+       ftbw= (FTB_WORD *)alloc_root(&ftb_param->ftb->mem_root,
+@@ -590,6 +597,7 @@
+ 
+ typedef struct st_my_ftb_phrase_param
+ {
++  FTB *ftb;
+   LIST *phrase;
+   LIST *document;
+   CHARSET_INFO *cs;
+@@ -606,6 +614,12 @@
+   MY_FTB_PHRASE_PARAM *phrase_param= param->mysql_ftparam;
+   FT_WORD *w= (FT_WORD *)phrase_param->document->data;
+   LIST *phrase, *document;
++  if(word_len>0 && (param->flags & MYSQL_FTFLAGS_NEED_COPY)){
++    char *ptr;
++    ptr=alloc_root(&phrase_param->ftb->mem_root, word_len);
++    memcpy(ptr,word,word_len);
++    word=ptr;
++  }
+   w->pos= (uchar*) word;
+   w->len= word_len;
+   phrase_param->document= phrase_param->document->prev;
+@@ -674,6 +688,7 @@
+   if (! (param= ftparser_call_initializer(ftb->info, ftb->keynr, 1)))
+     DBUG_RETURN(0);
+ 
++  ftb_param.ftb = ftb;
+   ftb_param.phrase= ftbe->phrase;
+   ftb_param.document= ftbe->document;
+   ftb_param.cs= ftb->charset;
