@@ -1,4 +1,5 @@
 # Copyright (C) 2008 Hiroaki Kawai
+AC_PROG_CC
 
 pkgplugindir=@MYSQL_PLUGINDIR@
 INCLUDES= -I$(top_builddir)/include -I$(top_srcdir)/include @MYSQL_INCLUDES@

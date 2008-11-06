@@ -21,9 +21,9 @@
 #define __attribute__(A)
 #endif
 
-static char* bigram_unicode_normalize="OFF";
-static char* bigram_unicode_version="DEFAULT";
-static char icu_unicode_version[32];
+static char* bigram_unicode_normalize;
+static char* bigram_unicode_version;
+static char  bigram_info[128];
 
 static void* icu_malloc(const void* context, size_t size){ return my_malloc(size,MYF(MY_WME)); }
 static void* icu_realloc(const void* context, void* ptr, size_t size){ return my_realloc(ptr,size,MYF(MY_WME)); }
@@ -31,11 +31,21 @@ static void  icu_free(const void* context, void *ptr){ my_free(ptr,MYF(0)); }
 
 static int bigram_parser_plugin_init(void *arg __attribute__((unused)))
 {
+  bigram_info[0]='\0';
 #if HAVE_ICU
+  strcat(bigram_info, "with ICU ");
+  char icu_tmp_str[16];
   char errstr[128];
   UVersionInfo versionInfo;
-  u_getUnicodeVersion(versionInfo);
-  u_versionToString(versionInfo, icu_unicode_version);
+  u_getVersion(versionInfo); // get ICU version
+  u_versionToString(versionInfo, icu_tmp_str);
+  strcat(bigram_info, ", ICU ");
+  strcat(bigram_info, icu_tmp_str);
+  u_getUnicodeVersion(versionInfo); // get ICU Unicode version
+  u_versionToString(versionInfo, icu_tmp_str);
+  strcat(bigram_info, "(Unicode ");
+  strcat(bigram_info, icu_tmp_str);
+  strcat(bigram_info, ")");
   
   UErrorCode ustatus=0;
   u_setMemoryFunctions(NULL, icu_malloc, icu_realloc, icu_free, &ustatus);
@@ -380,7 +390,7 @@ static MYSQL_SYSVAR_STR(unicode_version, bigram_unicode_version,
 
 static struct st_mysql_show_var bigram_status[]=
 {
-  {"ICU_unicode_version", (char *)icu_unicode_version, SHOW_CHAR},
+  {"Bigram_info", (char *)bigram_info, SHOW_CHAR},
   {0,0,0}
 };
 
