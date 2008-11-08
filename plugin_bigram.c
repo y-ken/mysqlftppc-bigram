@@ -39,7 +39,6 @@ static int bigram_parser_plugin_init(void *arg __attribute__((unused)))
   UVersionInfo versionInfo;
   u_getVersion(versionInfo); // get ICU version
   u_versionToString(versionInfo, icu_tmp_str);
-  strcat(bigram_info, ", ICU ");
   strcat(bigram_info, icu_tmp_str);
   u_getUnicodeVersion(versionInfo); // get ICU Unicode version
   u_versionToString(versionInfo, icu_tmp_str);
