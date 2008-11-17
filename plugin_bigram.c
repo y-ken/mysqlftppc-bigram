@@ -53,6 +53,8 @@ static int bigram_parser_plugin_init(void *arg __attribute__((unused)))
     fputs(errstr, stderr);
     fflush(stderr);
   }
+#else
+  strcat(bigram_info, ", without ICU");
 #endif
   return(0);
 }
