@@ -1,4 +1,15 @@
 * INSTALL
+Them you must patch mysql. Change directory into the mysql base directory which you extracted from tar-ball.
+$ patch -p1 < mysql-5.1.28-29.patch
+
+Make install the mysqld.
+
+Compile the plugin
+$ configure --with-mysql-config=/path/to/mysql_config
+$ make
+# make install
+
+** From the repository
 If you check out the source from the repository, you need autoconf, automake and libtool 
 to build the plugin. Type as following:
 $ aclocal
