@@ -1,6 +1,6 @@
 * INSTALL
 Them you must patch mysql. Change directory into the mysql base directory which you extracted from tar-ball.
-$ patch -p1 < mysql-5.1.28-29.patch
+$ patch -p1 < mysql-5.1.28-30.patch
 
 Make install the mysqld.
 
