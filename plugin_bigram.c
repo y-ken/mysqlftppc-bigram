@@ -3,6 +3,7 @@
 #include <ctype.h>
 
 #include "ftbool.h"
+#include "ftstring.h"
 #if HAVE_ICU
 #include <unicode/uclean.h>
 #include <unicode/uversion.h>
@@ -15,7 +16,13 @@
 #include <my_global.h>
 #include <m_ctype.h>
 #include <my_sys.h>
+#include <my_list.h>
 #include <plugin.h>
+
+#define HA_FT_MAXBYTELEN 254
+#define FTPPC_MEMORY_ERROR -1
+#define FTPPC_NORMALIZATION_ERROR -2
+#define FTPPC_SYNTAX_ERROR -3
 
 #if !defined(__attribute__) && (defined(__cplusplus) || !defined(__GNUC__)  || __GNUC__ == 2 && __GNUC_MINOR__ < 8)
 #define __attribute__(A)
@@ -28,6 +35,65 @@ static char  bigram_info[128];
 static void* icu_malloc(const void* context, size_t size){ return my_malloc(size,MYF(MY_WME)); }
 static void* icu_realloc(const void* context, void* ptr, size_t size){ return my_realloc(ptr,size,MYF(MY_WME)); }
 static void  icu_free(const void* context, void *ptr){ my_free(ptr,MYF(0)); }
+
+
+/** ftstate */
+static LIST* list_top(LIST* root){
+  LIST *cur = root;
+  while(cur && cur->next){
+    cur = cur->next;
+  }
+  return cur;
+}
+
+struct ftppc_mem_bulk {
+  void*  mem_head;
+  void*  mem_cur;
+  size_t mem_size;
+};
+
+struct ftppc_state {
+  /** immutable memory buffer */
+  size_t bulksize;
+  LIST*  mem_root;
+  void*  engine;
+  CHARSET_INFO* engine_charset;
+};
+
+static void* ftppc_alloc(struct ftppc_state *state, size_t length){
+  LIST *cur = list_top(state->mem_root);
+  while(1){
+    if(!cur){
+      // hit the root. create a new bulk.
+      size_t sz = state->bulksize<<1;
+      while(sz < length){
+        sz = sz<<1;
+      }
+      state->bulksize = sz;
+      
+      struct ftppc_mem_bulk *tmp = (struct ftppc_mem_bulk*)my_malloc(sizeof(struct ftppc_mem_bulk), MYF(MY_WME));
+      tmp->mem_head = my_malloc(sz, MYF(MY_WME));
+      tmp->mem_cur  = tmp->mem_head;
+      tmp->mem_size = sz;
+      
+      if(!tmp->mem_head){ return NULL; }
+      
+      state->mem_root = list_cons(tmp, cur);
+      cur = state->mem_root;
+    }
+    
+    struct ftppc_mem_bulk *bulk = (struct ftppc_mem_bulk*)cur->data;
+    
+    if(bulk->mem_cur + length < bulk->mem_head + bulk->mem_size){
+      void* addr = bulk->mem_cur;
+      bulk->mem_cur += length;
+      return addr;
+    }
+    cur = cur->prev;
+  }
+}
+/** /ftstate */
+
 
 static int bigram_parser_plugin_init(void *arg __attribute__((unused)))
 {
@@ -66,10 +132,18 @@ static int bigram_parser_plugin_deinit(void *arg __attribute__((unused)))
 
 static int bigram_parser_init(MYSQL_FTPARSER_PARAM *param __attribute__((unused)))
 {
+  struct ftppc_state *state = (struct ftppc_state*)my_malloc(sizeof(struct ftppc_state), MYF(MY_WME));
+  state->bulksize = 8;
+  state->mem_root = NULL;
+  param->ftparser_state = state;
+  
   return(0);
 }
 static int bigram_parser_deinit(MYSQL_FTPARSER_PARAM *param __attribute__((unused)))
 {
+  struct ftppc_state *state = (struct ftppc_state*)param->ftparser_state;
+  list_free(state->mem_root, 1);
+  
   return(0);
 }
 
@@ -103,86 +177,89 @@ static size_t str_convert(CHARSET_INFO *cs, char *from, size_t from_length,
   return (size_t)(wpos - to);
 }
 
-static int bigram_add_gram(MYSQL_FTPARSER_PARAM *param, MYSQL_FTPARSER_BOOLEAN_INFO *boolean_info, CHARSET_INFO *cs, my_wc_t* gram_wc, int ct){
-  int convres = 0;
-  int step = 0;
-  uchar w_buffer[32]; // 2-gram buffer can't be longer than 32.
-  int w_buffer_len=32;
-  
-  if(ct==-1 || ct==-2){
-    // ab
-    convres = cs->cset->wc_mb(cs, gram_wc[0], w_buffer, w_buffer+w_buffer_len);
-    convres = cs->cset->wc_mb(cs, gram_wc[1], w_buffer+convres, w_buffer+w_buffer_len) + convres;
-    if(convres>0) param->mysql_add_word(param, (char*)w_buffer, convres, boolean_info);
+
+static char* add_token(MYSQL_FTPARSER_PARAM *param, char* feed, size_t feed_length, CHARSET_INFO *cs, MYSQL_FTPARSER_BOOLEAN_INFO *instinfo, int feed_realloc,
+    int save_transcode, char* trans, size_t *trans_length_pt){
+  int tlen = feed_length;
+  char* thead = feed;
+  if(tlen <= 0){
+    return trans;
+   }
+  int trans_length = *trans_length_pt;
+  if(save_transcode){
+    size_t tmp_length = param->cs->mbmaxlen * cs->cset->numchars(cs, feed, feed+feed_length);
+    if(trans_length < tmp_length){
+      if(trans_length==0){ trans_length=1; }
+      while(trans_length < tmp_length){
+        trans_length = trans_length<<1;
+      }
+      if(trans){
+        char * tmp = my_realloc(trans, trans_length, MYF(MY_WME));
+        if(!tmp){
+          // we should raise warn here.
+          return trans;
+        }
+        trans = tmp;
+      }else{
+        trans = my_malloc(trans_length, MYF(MY_WME));
+        if(!trans){
+          // we should raise warn here.
+          return trans;
+        }
+      }
+    }
+    *trans_length_pt = trans_length;
+    tlen = str_convert(cs, thead, tlen, param->cs, trans, trans_length);
+    thead = trans;
   }
-  if(ct==-2){
-    convres = cs->cset->wc_mb(cs, gram_wc[1], w_buffer, w_buffer+w_buffer_len);
-    convres = cs->cset->wc_mb(cs, gram_wc[2], w_buffer+convres, w_buffer+w_buffer_len) + convres;
-    if(convres>0) param->mysql_add_word(param, (char*)w_buffer, convres, boolean_info);
-  }
-  if(ct<-2){
-    if(boolean_info->quot && param->mode == MYSQL_FTPARSER_FULL_BOOLEAN_INFO){
-      boolean_info->type = FT_TOKEN_RIGHT_PAREN;
-      param->mysql_add_word(param, (char*)w_buffer, 0, boolean_info); // push LEFT_PAREN token
-      boolean_info->type = FT_TOKEN_WORD;
-      boolean_info->quot = NULL;
-      step = -1;
+  if(feed_realloc || save_transcode){
+    thead = (char*)ftppc_alloc((struct ftppc_state*)param->ftparser_state, tlen);
+    if(thead){
+      memcpy(thead, feed, tlen);
+    }else{
+      // we should raise warn here.
+      return trans;
     }
   }
-  if(ct==0 || ct==1) step = 0;
-  if(ct==2){
-    // push quote
-    if(param->mode == MYSQL_FTPARSER_FULL_BOOLEAN_INFO){
-      boolean_info->quot = (char*)1;
-      boolean_info->type = FT_TOKEN_LEFT_PAREN;
-      param->mysql_add_word(param, (char*)w_buffer, 0, boolean_info); // push LEFT_PAREN token
-      boolean_info->type = FT_TOKEN_WORD;
-    }
-    // ab
-    convres = cs->cset->wc_mb(cs, gram_wc[0], w_buffer, w_buffer+w_buffer_len);
-    convres = cs->cset->wc_mb(cs, gram_wc[1], w_buffer+convres, w_buffer+w_buffer_len) + convres;
-    if(convres>0) param->mysql_add_word(param, (char*)w_buffer, convres, boolean_info);
-    // bc
-    convres = cs->cset->wc_mb(cs, gram_wc[1], w_buffer, w_buffer+w_buffer_len);
-    convres = cs->cset->wc_mb(cs, gram_wc[2], w_buffer+convres, w_buffer+w_buffer_len) + convres;
-    if(convres>0) param->mysql_add_word(param, (char*)w_buffer, convres, boolean_info);
-    step = 1;
+  if(tlen < HA_FT_MAXBYTELEN){
+    param->mysql_add_word(param, thead, tlen, instinfo);
+/*         
+//         char buf[1024];
+//         memcpy(buf, ftstring_head(pbuffer), tlen);
+//         buf[tlen]='\0';
+//         fputs(buf, stderr);
+//         fputs("\n", stderr);
+//         fflush(stderr); */
+  }else{
+    /* we should raise warn here. */
   }
-  if(ct>2){
-    convres = cs->cset->wc_mb(cs, gram_wc[ct%2+1], w_buffer, w_buffer+w_buffer_len);
-    convres = cs->cset->wc_mb(cs, gram_wc[ct%2+2], w_buffer+convres, w_buffer+w_buffer_len) + convres;
-    if(convres>0) param->mysql_add_word(param, (char*)w_buffer, convres, boolean_info);
-  }
-  return step;
+  return trans;
 }
+
 
 static int bigram_parser_parse(MYSQL_FTPARSER_PARAM *param)
 {
   DBUG_ENTER("bigram_parser_parse");
 
-  CHARSET_INFO *uc = NULL; // if the sequence changed to UTF-8, it is not null
-  CHARSET_INFO *cs = param->cs;
   char* feed = param->doc;
   size_t feed_length = (size_t)param->length;
   int feed_req_free = 0;
-  
-  if(strcmp("utf8", cs->csname)!=0 && bigram_unicode_normalize && strcmp(bigram_unicode_normalize, "OFF")!=0){
-    uc = get_charset(33,MYF(0)); // my_charset_utf8_general_ci for utf8 conversion
-  }
-  
-  // convert into UTF-8
-  if(uc){
-    // calculate mblen and malloc.
-    int cv_length = uc->mbmaxlen * cs->cset->numchars(cs, feed, feed+feed_length);
-    char* cv = my_malloc(cv_length, MYF(MY_WME));
-    feed_length = str_convert(cs, feed, feed_length, uc, cv, cv_length);
-    feed = cv;
-    feed_req_free = 1;
-  }
+  CHARSET_INFO *cs = param->cs;
   
 #if HAVE_ICU
   // normalize
   if(bigram_unicode_normalize && strcmp(bigram_unicode_normalize, "OFF")!=0){
+    if(strcmp("utf8", cs->csname)!=0){
+      // convert into UTF-8
+      CHARSET_INFO *uc = get_charset(33,MYF(0)); // my_charset_utf8_general_ci for utf8 conversion
+      // calculate mblen and malloc.
+      int cv_length = uc->mbmaxlen * cs->cset->numchars(cs, feed, feed+feed_length);
+      char* cv = my_malloc(cv_length, MYF(MY_WME));
+      feed_length = str_convert(cs, feed, feed_length, uc, cv, cv_length);
+      feed = cv;
+      feed_req_free = 1;
+      cs = uc;
+    }
     char* nm;
     char* t;
     size_t nm_length=0;
@@ -198,143 +275,216 @@ static int bigram_parser_parse(MYSQL_FTPARSER_PARAM *param)
     if(strcmp(bigram_unicode_normalize, "KD")==0) mode = UNORM_NFKD;
     if(strcmp(bigram_unicode_normalize, "FCD")==0) mode = UNORM_FCD;
     if(bigram_unicode_version && strcmp(bigram_unicode_version, "3.2")==0) options |= UNORM_UNICODE_3_2;
-    t = uni_normalize(feed, feed_length, nm, nm_length, &nm_used, mode, options, &status);
-    if(status != 0){
-      nm_length=nm_used;
-      nm = my_realloc(nm, nm_length, MYF(MY_WME));
-      t = uni_normalize(feed, feed_length, nm, nm_length, &nm_used, mode, options, &status);
-      if(status != 0){
+    if(feed_length > 0){
+      nm_used = uni_normalize(feed, feed_length, nm, nm_length, mode, options);
+      if(nm_used == 0){
         fputs("unicode normalization failed.\n",stderr);
         fflush(stderr);
-      }else{
-        nm = t;
+        
+        if(feed_req_free){ my_free(feed,MYF(0)); }
+        DBUG_RETURN(FTPPC_NORMALIZATION_ERROR);
+      }else if(nm_used > nm_length){
+        nm_length = nm_used + 8;
+        char *tmp = my_realloc(nm, nm_length, MYF(MY_WME));
+        if(tmp){
+          nm = tmp;
+        }else{
+          if(feed_req_free){ my_free(feed,MYF(0)); }
+          my_free(nm, MYF(0));
+          DBUG_RETURN(FTPPC_MEMORY_ERROR);
+        }
+        nm_used = uni_normalize(feed, feed_length, nm, nm_length, mode, options);
+        if(nm_used == 0){
+          fputs("unicode normalization failed.\n",stderr);
+          fflush(stderr);
+          
+          if(feed_req_free){ my_free(feed,MYF(0)); }
+          my_free(nm, MYF(0));
+          DBUG_RETURN(FTPPC_NORMALIZATION_ERROR);
+        }
       }
-    }else{
-      nm = t;
+      if(feed_req_free){ my_free(feed,MYF(0)); }
+      feed = nm;
+      feed_length = nm_used;
+      feed_req_free = 1;
     }
-    feed_length = nm_used;
-    if(feed_req_free) my_free(feed,MYF(0));
-    feed = nm;
-    feed_req_free = 1;
   }
 #endif
   
-  // setup params
-  param->flags |= MYSQL_FTFLAGS_NEED_COPY; // buffer is to be free-ed
+  FTSTRING buffer = { NULL, 0, NULL, 0, 0 };
+  FTSTRING *pbuffer = &buffer;
+  ftstring_bind(pbuffer, feed, feed_req_free);
+  
+  MYSQL_FTPARSER_BOOLEAN_INFO instinfo ={ FT_TOKEN_WORD, 0, 0, 0, 0, ' ', 0 };
+  MYSQL_FTPARSER_BOOLEAN_INFO *info_may = (MYSQL_FTPARSER_BOOLEAN_INFO*)my_malloc(sizeof(MYSQL_FTPARSER_BOOLEAN_INFO), MYF(MY_WME));
+  *info_may = instinfo;
+  LIST *infos = NULL;
+  list_push(infos, info_may);
   
   int context=CTX_CONTROL;
-  int depth=0;
-  MYSQL_FTPARSER_BOOLEAN_INFO bool_info_may ={ FT_TOKEN_WORD, 0, 0, 0, 0, ' ', 0 };
-  MYSQL_FTPARSER_BOOLEAN_INFO instinfo;
-  MYSQL_FTPARSER_BOOLEAN_INFO baseinfos[16];
-  instinfo = baseinfos[0] = bool_info_may;
+  SEQFLOW sf,sf_prev = SF_BROKEN;
   
-  // working buffers:
-  my_wc_t gram_wc[4];
-  int step;
+  int wct = 0;
+  int chained = 0;
   
-  int ct=0;
+  size_t trans_length = 2 * param->cs->mbmaxlen;
+  char*  trans = my_malloc(trans_length, MYF(MY_WME));
+  int save_transcode = 0;
+  if(cs != param->cs){
+    save_transcode = 1;
+  }
+  
+  size_t prev_token_length = 0;
+  char*  prev_token = NULL;
+  int    prev_need_realloc = 0;
+  
   char* pos = feed;
   char* docend = feed + feed_length;
   while(pos < docend){
-    int convres;
-    my_wc_t wc;
-    int broken=1;
-    while(pos < docend){
-      SEQFLOW sf;
-      if(uc){
-        sf = ctxscan(uc, pos, docend, &wc, &convres, context);
+    int readsize;
+    my_wc_t dst;
+    sf = ctxscan(cs, pos, docend, &dst, &readsize, context);
+    if(param->mode == MYSQL_FTPARSER_FULL_BOOLEAN_INFO){
+      if(sf==SF_ESCAPE){
+        context |= CTX_ESCAPE;
+        context |= CTX_CONTROL;
       }else{
-        sf = ctxscan(cs, pos, docend, &wc, &convres, context);
-      }
-      if(convres > 0){
-        pos += convres;
-      }else if(convres == MY_CS_ILSEQ){
-        pos++;
-        wc = '?';
-      }else{
-        break;
-      }
-      
-      if(param->mode == MYSQL_FTPARSER_FULL_BOOLEAN_INFO){
-        if(sf==SF_ESCAPE){
-          context |= CTX_ESCAPE;  // ESCAPE ON
-          context |= CTX_CONTROL; // CONTROL ON
+        context &= ~CTX_ESCAPE;
+        if(sf == SF_CHAR){
+          context &= ~CTX_CONTROL;
         }else{
-          context &= ~CTX_ESCAPE; // ESCAPE OFF
-          if(sf == SF_CHAR){
-            context &= ~CTX_CONTROL; // CONTROL OFF
-          }else{
-            context |= CTX_CONTROL; // CONTROL ON
-          }
-          
-          if(sf == SF_QUOTE_START) context |= CTX_QUOTE;
-          if(sf == SF_QUOTE_END)   context &= ~CTX_QUOTE;
-          if(sf == SF_LEFT_PAREN){
-            depth++;
-            if(depth>16) depth=16;
-            baseinfos[depth] = instinfo;
+          context |= CTX_CONTROL;
+        }
+      }
+      if(sf == SF_TRUNC){
+        sf = SF_CHAR;
+      }
+      if(sf == SF_PLUS){   instinfo.yesno = 1; }
+      if(sf == SF_MINUS){  instinfo.yesno = -1; }
+      if(sf == SF_STRONG){ instinfo.weight_adjust++; }
+      if(sf == SF_WEAK){   instinfo.weight_adjust--; }
+      if(sf == SF_WASIGN){ instinfo.wasign = !instinfo.wasign; }
+      if(sf == SF_LEFT_PAREN){
+        MYSQL_FTPARSER_BOOLEAN_INFO *tmp = (MYSQL_FTPARSER_BOOLEAN_INFO*)my_malloc(sizeof(MYSQL_FTPARSER_BOOLEAN_INFO), MYF(MY_WME));
+        *tmp = instinfo;
+        list_push(infos, tmp);
+        
+        instinfo.type = FT_TOKEN_LEFT_PAREN;
+        param->mysql_add_word(param, pos, 0, &instinfo); // push LEFT_PAREN token
+        instinfo = *tmp;
+      }
+      if(sf == SF_QUOTE_START){ // in bigram, multiple chained tokens are always phrase. we don't need quote symbol.
+        context |= CTX_QUOTE;
+      }
+      if(sf == SF_RIGHT_PAREN){
+        instinfo = *((MYSQL_FTPARSER_BOOLEAN_INFO*)infos->data);
+        instinfo.type = FT_TOKEN_RIGHT_PAREN;
+        param->mysql_add_word(param, pos, 0, &instinfo); // push RIGHT_PAREN token
+        
+        MYSQL_FTPARSER_BOOLEAN_INFO *tmp = (MYSQL_FTPARSER_BOOLEAN_INFO*)infos->data;
+        if(tmp){ my_free(tmp, MYF(0)); }
+        list_pop(infos);
+        if(!infos){
+          DBUG_RETURN(FTPPC_SYNTAX_ERROR);
+        } // must not reach the base info_may level.
+        instinfo = *((MYSQL_FTPARSER_BOOLEAN_INFO*)infos->data);
+      }
+      if(sf == SF_QUOTE_END){ // in bigram, multiple chained tokens are always phrase. we don't need quote symbol.
+        context &= ~CTX_QUOTE;
+      }
+    }else{
+      // natural query or phrase query.
+      sf = SF_CHAR;
+    }
+    if(sf == SF_CHAR){
+      if(ftstring_length(pbuffer)==0){
+        ftstring_bind(pbuffer, pos, feed_req_free);
+        wct = 0;
+      }
+      ftstring_append(pbuffer, pos, readsize);
+      wct++;
+      if(wct==2){
+        if(chained){
+          if(!instinfo.quot && param->mode == MYSQL_FTPARSER_FULL_BOOLEAN_INFO){
+            instinfo.quot = (char*)1; // will be in quote
+            
+            MYSQL_FTPARSER_BOOLEAN_INFO *tmp = (MYSQL_FTPARSER_BOOLEAN_INFO*)my_malloc(sizeof(MYSQL_FTPARSER_BOOLEAN_INFO), MYF(MY_WME));
+            *tmp = instinfo;
+            list_push(infos, tmp);
+            
             instinfo.type = FT_TOKEN_LEFT_PAREN;
             param->mysql_add_word(param, pos, 0, &instinfo); // push LEFT_PAREN token
-            instinfo = baseinfos[depth];
+            instinfo = *tmp;
           }
-          if(sf == SF_RIGHT_PAREN){
-            instinfo.type = FT_TOKEN_RIGHT_PAREN;
-            param->mysql_add_word(param, pos, 0, &instinfo); // push RIGHT_PAREN token
-            depth--;
-            if(depth<0) depth=0;
-            instinfo = baseinfos[depth];
-          }
-          if(sf == SF_PLUS){
-            instinfo.yesno = 1;
-          }
-          if(sf == SF_MINUS){
-            instinfo.yesno = -1;
-          }
-          if(sf == SF_PLUS) instinfo.weight_adjust = 1;
-          if(sf == SF_MINUS) instinfo.weight_adjust = -1;
-          if(sf == SF_WASIGN){
-            instinfo.wasign = -1;
-          }
+          // previous gram
+          trans = add_token(param, prev_token, prev_token_length, cs, &instinfo, prev_need_realloc, save_transcode, trans, &trans_length);
         }
-        if(sf == SF_CHAR){
-          broken = 0;
-          break; // emit char
-        }else if(sf != SF_ESCAPE){
-          step = bigram_add_gram(param, &instinfo, cs, gram_wc, -ct); // the gram sequece end.
-          depth+=step;
-          if(depth<0) depth=0;
-          if(step!=0){
-            instinfo = baseinfos[depth];
-          }
-          ct=0;
-        }
-        if(sf == SF_WHITE || sf == SF_QUOTE_END || sf == SF_LEFT_PAREN || sf == SF_RIGHT_PAREN){
-          instinfo = baseinfos[depth];
-        }
-      }else{
-        broken = 0;
-        break; // emit char
+        
+        // new gram. prepare for chain
+        prev_token = ftstring_head(pbuffer);;
+        prev_token_length = ftstring_length(pbuffer);
+        prev_need_realloc = ftstring_internal(pbuffer);
+        
+        ftstring_bind(pbuffer, pos, feed_req_free);
+        ftstring_append(pbuffer, pos, readsize);
+        wct = 1;
+        
+        chained = 1;
       }
-    }
-    if(broken) break;
-    
-    if(ct%2==0){
-      if(ct==0) gram_wc[0] = wc;
-      gram_wc[2] = wc;
     }else{
-      gram_wc[1] = wc;
-      gram_wc[3] = wc;
+      if(chained){
+        trans = add_token(param, prev_token, prev_token_length, cs, &instinfo, prev_need_realloc, save_transcode, trans, &trans_length);
+        if(instinfo.quot && param->mode == MYSQL_FTPARSER_FULL_BOOLEAN_INFO){
+          instinfo = *((MYSQL_FTPARSER_BOOLEAN_INFO*)infos->data);
+          instinfo.type = FT_TOKEN_RIGHT_PAREN;
+          instinfo.quot = (char*)1; // This is not required normally.
+          param->mysql_add_word(param, pos, 0, &instinfo); // push RIGHT_PAREN token
+          
+          MYSQL_FTPARSER_BOOLEAN_INFO *tmp = infos->data;
+          if(tmp){ my_free(tmp, MYF(0)); }
+          list_pop(infos);
+          if(!infos){
+            DBUG_RETURN(FTPPC_SYNTAX_ERROR);
+          } // must not reach the base info_may level.
+          instinfo = *((MYSQL_FTPARSER_BOOLEAN_INFO*)infos->data);
+        }
+      }
+      wct = 0;
+      chained = 0;
     }
-    step = bigram_add_gram(param, &instinfo, cs, gram_wc, ct);
-    depth+=step;
-    if(depth>16) depth=16;
-    if(step > 0) baseinfos[depth] = instinfo;
-    ct++;
+    
+    if(readsize > 0){
+      pos += readsize;
+    }else if(readsize == MY_CS_ILSEQ){
+      pos++;
+    }else{
+      break;
+    }
+    sf_prev = sf;
   }
-  if(param->mode==MYSQL_FTPARSER_FULL_BOOLEAN_INFO) bigram_add_gram(param, &instinfo, cs, gram_wc, -ct);
+  if(chained){
+    trans = add_token(param, prev_token, prev_token_length, cs, &instinfo, prev_need_realloc, save_transcode, trans, &trans_length);
+    if(instinfo.quot && param->mode == MYSQL_FTPARSER_FULL_BOOLEAN_INFO){
+      instinfo = *((MYSQL_FTPARSER_BOOLEAN_INFO*)infos->data);
+      instinfo.type = FT_TOKEN_RIGHT_PAREN;
+      instinfo.quot = (char*)1; // This is not required normally.
+      param->mysql_add_word(param, pos, 0, &instinfo); // push RIGHT_PAREN token
+      
+      // infos is freed by list_free
+//       MYSQL_FTPARSER_BOOLEAN_INFO *tmp = infos->data;
+//       if(tmp){ my_free(tmp, MYF(0)); }
+//       list_pop(infos);
+//       if(!infos){
+//         DBUG_RETURN(FTPPC_SYNTAX_ERROR);
+//       } // must not reach the base info_may level.
+//       instinfo = *((MYSQL_FTPARSER_BOOLEAN_INFO*)infos->data);
+    }
+  }
   
-  if(feed_req_free) my_free(feed, MYF(0));
+  if(trans){ my_free(trans, MYF(0)); }
+  list_free(infos, 1);
+  ftstring_destroy(pbuffer);
+  if(feed_req_free){ my_free(feed, MYF(0)); }
   DBUG_RETURN(0);
 }
 
@@ -421,7 +571,7 @@ mysql_declare_plugin(ft_bigram)
   PLUGIN_LICENSE_BSD,
   bigram_parser_plugin_init,  /* init function (when loaded)     */
   bigram_parser_plugin_deinit,/* deinit function (when unloaded) */
-  0x0015,                     /* version                         */
+  0x0016,                     /* version                         */
   bigram_status,              /* status variables                */
   bigram_system_variables,    /* system variables                */
   NULL

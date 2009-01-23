@@ -3,6 +3,8 @@
  * @param src_len source UTF-8 string length (byte length)
  * @param dst normalized UTF-8 string pointer
  * @param dst_capacity normalized UTF-8 string length (byte length)
- * @param dst_used the length will be written
+ * @param mode normalization mode
+ * @param options normalization options
+ * @return actual size of written. 0 on failure.
  */
-char* uni_normalize(char* src, size_t src_len, char* dst, size_t dst_capacity, size_t *dst_used, int mode, int options, int* status);
+size_t uni_normalize(char* src, size_t src_len, char* dst, size_t dst_capacity, int mode, int options);
