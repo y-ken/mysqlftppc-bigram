@@ -152,7 +152,7 @@ static size_t str_convert(CHARSET_INFO *cs, char *from, size_t from_length,
                           size_t *numchars){
   char *rpos, *rend, *wpos, *wend;
   my_wc_t wc;
-  char* tmp;
+  char* tmp = NULL;
   
   if(numchars){ *numchars = 0; }
   rpos = from;
