@@ -148,10 +148,13 @@ static int bigram_parser_deinit(MYSQL_FTPARSER_PARAM *param __attribute__((unuse
 }
 
 static size_t str_convert(CHARSET_INFO *cs, char *from, size_t from_length,
-                          CHARSET_INFO *uc, char *to,   size_t to_length){
+                          CHARSET_INFO *uc, char *to,   size_t to_length,
+                          size_t *numchars){
   char *rpos, *rend, *wpos, *wend;
   my_wc_t wc;
+  char* tmp;
   
+  if(numchars){ *numchars = 0; }
   rpos = from;
   rend = from + from_length;
   wpos = to;
@@ -167,73 +170,101 @@ static size_t str_convert(CHARSET_INFO *cs, char *from, size_t from_length,
     }else{
       break;
     }
-    cnvres = uc->cset->wc_mb(uc, wc, (uchar*)wpos, (uchar*)wend);
+    if(!to){
+      if(!tmp){ tmp=my_malloc(uc->mbmaxlen, MYF(MY_WME)); }
+      cnvres = uc->cset->wc_mb(uc, wc, (uchar*)tmp, (uchar*)(tmp+uc->mbmaxlen));
+    }else{
+      cnvres = uc->cset->wc_mb(uc, wc, (uchar*)wpos, (uchar*)wend);
+    }
     if(cnvres > 0){
-      wpos += cnvres;
+      wpos += (size_t)cnvres;
     }else{
       break;
     }
+    if(numchars){ *numchars++; }
   }
-  return (size_t)(wpos - to);
+  if(tmp){ my_free(tmp, MYF(0)); }
+  return (size_t)(wpos-to);
 }
 
 
-static char* add_token(MYSQL_FTPARSER_PARAM *param, char* feed, size_t feed_length, CHARSET_INFO *cs, MYSQL_FTPARSER_BOOLEAN_INFO *instinfo, int feed_realloc,
-    int save_transcode, char* trans, size_t *trans_length_pt){
-  int tlen = feed_length;
-  char* thead = feed;
-  if(tlen <= 0){
-    return trans;
-   }
-  int trans_length = *trans_length_pt;
-  if(save_transcode){
-    size_t tmp_length = param->cs->mbmaxlen * cs->cset->numchars(cs, feed, feed+feed_length);
-    if(trans_length < tmp_length){
-      if(trans_length==0){ trans_length=1; }
-      while(trans_length < tmp_length){
-        trans_length = trans_length<<1;
-      }
-      if(trans){
-        char * tmp = my_realloc(trans, trans_length, MYF(MY_WME));
-        if(!tmp){
-          // we should raise warn here.
-          return trans;
-        }
-        trans = tmp;
-      }else{
-        trans = my_malloc(trans_length, MYF(MY_WME));
-        if(!trans){
-          // we should raise warn here.
-          return trans;
-        }
-      }
-    }
-    *trans_length_pt = trans_length;
-    tlen = str_convert(cs, thead, tlen, param->cs, trans, trans_length);
-    thead = trans;
-  }
-  if(feed_realloc || save_transcode){
-    thead = (char*)ftppc_alloc((struct ftppc_state*)param->ftparser_state, tlen);
-    if(thead){
-      memcpy(thead, feed, tlen);
-    }else{
-      // we should raise warn here.
-      return trans;
-    }
-  }
-  if(tlen < HA_FT_MAXBYTELEN){
-    param->mysql_add_word(param, thead, tlen, instinfo);
-/*         
-//         char buf[1024];
-//         memcpy(buf, ftstring_head(pbuffer), tlen);
-//         buf[tlen]='\0';
-//         fputs(buf, stderr);
-//         fputs("\n", stderr);
-//         fflush(stderr); */
+static int bigram_add_word(MYSQL_FTPARSER_PARAM *param, FTSTRING *pbuffer, CHARSET_INFO *cs, MYSQL_FTPARSER_BOOLEAN_INFO *instinfo){
+  if(ftstring_length(pbuffer)<=0){ return 0; }
+  
+  size_t tlen = ftstring_length(pbuffer);
+  
+  my_wc_t wc;
+  char *src  = ftstring_head(pbuffer);
+  char *srce = src + tlen;
+  char *dst  = NULL;
+  char *dste = NULL;
+  
+  int quote = 0;
+  int save_transcode = 0;
+  if(strcmp(cs->csname, param->cs->csname)!=0){
+    size_t nums;
+    tlen = str_convert(cs, ftstring_head(pbuffer), ftstring_length(pbuffer), param->cs, NULL, 0, &nums);
+    save_transcode = 1;
+    if(nums > 2){ quote = 1; }
   }else{
-    /* we should raise warn here. */
+    if(cs->cset->numchars(cs, src, srce) > 2){ quote = 1; }
   }
-  return trans;
+  if(save_transcode || ftstring_internal(pbuffer) || pbuffer->rewritable){
+    dst = (char*)ftppc_alloc((struct ftppc_state*)param->ftparser_state, tlen);
+    if(!dst){ return FTPPC_MEMORY_ERROR; }
+    dste = dst + tlen;
+  }
+  
+  if(quote && instinfo){
+    instinfo->quot = (char*)1;
+    MYSQL_FTPARSER_BOOLEAN_INFO tmp = *instinfo;
+    tmp.type = FT_TOKEN_LEFT_PAREN;
+    param->mysql_add_word(param, dst, 0, &tmp); // push LEFT_PAREN token
+  }
+  
+  char *prev = NULL;
+  int wct = 0;
+  while(src < srce){
+    int cnvres = 0;
+    char* t = src;
+    
+    cnvres = cs->cset->mb_wc(cs, &wc, (uchar*)src, (uchar*)srce);
+    if(cnvres > 0){
+      src += cnvres;
+    }else if(cnvres == MY_CS_ILSEQ){
+      src++;
+    }else{
+      break;
+    }
+    
+    if(dst){
+      cnvres = param->cs->cset->wc_mb(param->cs, wc, (uchar*)dst, (uchar*)dste);
+      if(cnvres > 0){
+        t = dst;
+        dst += cnvres;
+        if(prev){
+          param->mysql_add_word(param, prev, dst-prev, instinfo);
+        }
+        prev = t;
+      }else{
+        break;
+      }
+    }else{
+      if(prev){
+        param->mysql_add_word(param, prev, src - prev, instinfo);
+      }
+      prev = t;
+    }
+    wct++;
+  }
+  
+  if(quote && instinfo){
+    instinfo->quot = (char*)1;
+    MYSQL_FTPARSER_BOOLEAN_INFO tmp = *instinfo;
+    tmp.type = FT_TOKEN_RIGHT_PAREN;
+    param->mysql_add_word(param, dst, 0, &tmp); // push LEFT_PAREN token
+  }
+  return 0;
 }
 
 
@@ -255,7 +286,7 @@ static int bigram_parser_parse(MYSQL_FTPARSER_PARAM *param)
       // calculate mblen and malloc.
       int cv_length = uc->mbmaxlen * cs->cset->numchars(cs, feed, feed+feed_length);
       char* cv = my_malloc(cv_length, MYF(MY_WME));
-      feed_length = str_convert(cs, feed, feed_length, uc, cv, cv_length);
+      feed_length = str_convert(cs, feed, feed_length, uc, cv, cv_length, NULL);
       feed = cv;
       feed_req_free = 1;
       cs = uc;
@@ -315,36 +346,27 @@ static int bigram_parser_parse(MYSQL_FTPARSER_PARAM *param)
   FTSTRING *pbuffer = &buffer;
   ftstring_bind(pbuffer, feed, feed_req_free);
   
-  MYSQL_FTPARSER_BOOLEAN_INFO instinfo ={ FT_TOKEN_WORD, 0, 0, 0, 0, ' ', 0 };
-  MYSQL_FTPARSER_BOOLEAN_INFO *info_may = (MYSQL_FTPARSER_BOOLEAN_INFO*)my_malloc(sizeof(MYSQL_FTPARSER_BOOLEAN_INFO), MYF(MY_WME));
-  *info_may = instinfo;
-  LIST *infos = NULL;
-  list_push(infos, info_may);
-  
-  int context=CTX_CONTROL;
-  SEQFLOW sf,sf_prev = SF_BROKEN;
-  
-  int wct = 0;
-  int chained = 0;
-  
-  size_t trans_length = 2 * param->cs->mbmaxlen;
-  char*  trans = my_malloc(trans_length, MYF(MY_WME));
-  int save_transcode = 0;
-  if(cs != param->cs){
-    save_transcode = 1;
-  }
-  
-  size_t prev_token_length = 0;
-  char*  prev_token = NULL;
-  int    prev_need_realloc = 0;
-  
-  char* pos = feed;
-  char* docend = feed + feed_length;
-  while(pos < docend){
-    int readsize;
-    my_wc_t dst;
-    sf = ctxscan(cs, pos, docend, &dst, &readsize, context);
-    if(param->mode == MYSQL_FTPARSER_FULL_BOOLEAN_INFO){
+  if(param->mode == MYSQL_FTPARSER_FULL_BOOLEAN_INFO){
+    MYSQL_FTPARSER_BOOLEAN_INFO instinfo ={ FT_TOKEN_WORD, 0, 0, 0, 0, ' ', 0 };
+    MYSQL_FTPARSER_BOOLEAN_INFO *info_may = (MYSQL_FTPARSER_BOOLEAN_INFO*)my_malloc(sizeof(MYSQL_FTPARSER_BOOLEAN_INFO), MYF(MY_WME));
+    *info_may = instinfo;
+    LIST *infos = NULL;
+    list_push(infos, info_may);
+    
+    int context=CTX_CONTROL;
+    SEQFLOW sf,sf_prev = SF_BROKEN;
+    
+    size_t prev_token_length = 0;
+    char*  prev_token = NULL;
+    int    prev_need_realloc = 0;
+    
+    char* pos = feed;
+    char* docend = feed + feed_length;
+    while(pos < docend){
+      int readsize;
+      my_wc_t dst;
+      sf = ctxscan(cs, pos, docend, &dst, &readsize, context);
+      
       if(sf==SF_ESCAPE){
         context |= CTX_ESCAPE;
         context |= CTX_CONTROL;
@@ -368,7 +390,7 @@ static int bigram_parser_parse(MYSQL_FTPARSER_PARAM *param)
         MYSQL_FTPARSER_BOOLEAN_INFO *tmp = (MYSQL_FTPARSER_BOOLEAN_INFO*)my_malloc(sizeof(MYSQL_FTPARSER_BOOLEAN_INFO), MYF(MY_WME));
         *tmp = instinfo;
         list_push(infos, tmp);
-        
+      
         instinfo.type = FT_TOKEN_LEFT_PAREN;
         param->mysql_add_word(param, pos, 0, &instinfo); // push LEFT_PAREN token
         instinfo = *tmp;
@@ -380,7 +402,7 @@ static int bigram_parser_parse(MYSQL_FTPARSER_PARAM *param)
         instinfo = *((MYSQL_FTPARSER_BOOLEAN_INFO*)infos->data);
         instinfo.type = FT_TOKEN_RIGHT_PAREN;
         param->mysql_add_word(param, pos, 0, &instinfo); // push RIGHT_PAREN token
-        
+      
         MYSQL_FTPARSER_BOOLEAN_INFO *tmp = (MYSQL_FTPARSER_BOOLEAN_INFO*)infos->data;
         if(tmp){ my_free(tmp, MYF(0)); }
         list_pop(infos);
@@ -392,97 +414,32 @@ static int bigram_parser_parse(MYSQL_FTPARSER_PARAM *param)
       if(sf == SF_QUOTE_END){ // in bigram, multiple chained tokens are always phrase. we don't need quote symbol.
         context &= ~CTX_QUOTE;
       }
-    }else{
-      // natural query or phrase query.
-      sf = SF_CHAR;
-    }
-    if(sf == SF_CHAR){
-      if(ftstring_length(pbuffer)==0){
-        ftstring_bind(pbuffer, pos, feed_req_free);
-        wct = 0;
-      }
-      ftstring_append(pbuffer, pos, readsize);
-      wct++;
-      if(wct==2){
-        if(chained){
-          if(!instinfo.quot && param->mode == MYSQL_FTPARSER_FULL_BOOLEAN_INFO){
-            instinfo.quot = (char*)1; // will be in quote
-            
-            MYSQL_FTPARSER_BOOLEAN_INFO *tmp = (MYSQL_FTPARSER_BOOLEAN_INFO*)my_malloc(sizeof(MYSQL_FTPARSER_BOOLEAN_INFO), MYF(MY_WME));
-            *tmp = instinfo;
-            list_push(infos, tmp);
-            
-            instinfo.type = FT_TOKEN_LEFT_PAREN;
-            param->mysql_add_word(param, pos, 0, &instinfo); // push LEFT_PAREN token
-            instinfo = *tmp;
-          }
-          // previous gram
-          trans = add_token(param, prev_token, prev_token_length, cs, &instinfo, prev_need_realloc, save_transcode, trans, &trans_length);
-        }
-        
-        // new gram. prepare for chain
-        prev_token = ftstring_head(pbuffer);;
-        prev_token_length = ftstring_length(pbuffer);
-        prev_need_realloc = ftstring_internal(pbuffer);
-        
-        ftstring_bind(pbuffer, pos, feed_req_free);
+      if(sf == SF_CHAR){
         ftstring_append(pbuffer, pos, readsize);
-        wct = 1;
-        
-        chained = 1;
-      }
-    }else{
-      if(chained){
-        trans = add_token(param, prev_token, prev_token_length, cs, &instinfo, prev_need_realloc, save_transcode, trans, &trans_length);
-        if(instinfo.quot && param->mode == MYSQL_FTPARSER_FULL_BOOLEAN_INFO){
-          instinfo = *((MYSQL_FTPARSER_BOOLEAN_INFO*)infos->data);
-          instinfo.type = FT_TOKEN_RIGHT_PAREN;
-          instinfo.quot = (char*)1; // This is not required normally.
-          param->mysql_add_word(param, pos, 0, &instinfo); // push RIGHT_PAREN token
-          
-          MYSQL_FTPARSER_BOOLEAN_INFO *tmp = infos->data;
-          if(tmp){ my_free(tmp, MYF(0)); }
-          list_pop(infos);
-          if(!infos){
-            DBUG_RETURN(FTPPC_SYNTAX_ERROR);
-          } // must not reach the base info_may level.
-          instinfo = *((MYSQL_FTPARSER_BOOLEAN_INFO*)infos->data);
+      }else{
+        if(ftstring_length(pbuffer)>0){
+          bigram_add_word(param, pbuffer, cs, &instinfo);
+          ftstring_reset(pbuffer);
         }
       }
-      wct = 0;
-      chained = 0;
-    }
-    
-    if(readsize > 0){
-      pos += readsize;
-    }else if(readsize == MY_CS_ILSEQ){
-      pos++;
-    }else{
-      break;
-    }
-    sf_prev = sf;
-  }
-  if(chained){
-    trans = add_token(param, prev_token, prev_token_length, cs, &instinfo, prev_need_realloc, save_transcode, trans, &trans_length);
-    if(instinfo.quot && param->mode == MYSQL_FTPARSER_FULL_BOOLEAN_INFO){
-      instinfo = *((MYSQL_FTPARSER_BOOLEAN_INFO*)infos->data);
-      instinfo.type = FT_TOKEN_RIGHT_PAREN;
-      instinfo.quot = (char*)1; // This is not required normally.
-      param->mysql_add_word(param, pos, 0, &instinfo); // push RIGHT_PAREN token
       
-      // infos is freed by list_free
-//       MYSQL_FTPARSER_BOOLEAN_INFO *tmp = infos->data;
-//       if(tmp){ my_free(tmp, MYF(0)); }
-//       list_pop(infos);
-//       if(!infos){
-//         DBUG_RETURN(FTPPC_SYNTAX_ERROR);
-//       } // must not reach the base info_may level.
-//       instinfo = *((MYSQL_FTPARSER_BOOLEAN_INFO*)infos->data);
+      if(readsize > 0){
+        pos += readsize;
+      }else if(readsize == MY_CS_ILSEQ){
+        pos++;
+      }else{
+        break;
+      }
+      sf_prev = sf;
     }
+    if(ftstring_length(pbuffer) > 0){
+      bigram_add_word(param, pbuffer, cs, &instinfo);
+    }
+    list_free(infos, 1);
+  }else{
+    ftstring_append(pbuffer, feed, feed_length);
+    bigram_add_word(param, pbuffer, cs, NULL);
   }
-  
-  if(trans){ my_free(trans, MYF(0)); }
-  list_free(infos, 1);
   ftstring_destroy(pbuffer);
   if(feed_req_free){ my_free(feed, MYF(0)); }
   DBUG_RETURN(0);
