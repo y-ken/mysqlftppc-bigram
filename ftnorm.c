@@ -1,6 +1,8 @@
+#if HAVE_ICU
 #include <my_global.h>
 #include <my_sys.h>
-#if HAVE_ICU
+#include <m_string.h>
+
 #include <unicode/unorm.h>
 #include <unicode/ustring.h>
 

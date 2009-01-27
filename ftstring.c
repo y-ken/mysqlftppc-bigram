@@ -1,6 +1,7 @@
 #include <my_global.h>
 #include <my_sys.h>
-#include <ftstring.h>
+#include <m_string.h>
+#include "ftstring.h"
 
 /**
  * FTSTRING has 3 modes:

@@ -47,8 +47,8 @@ static LIST* list_top(LIST* root){
 }
 
 struct ftppc_mem_bulk {
-  void*  mem_head;
-  void*  mem_cur;
+  char*  mem_head;
+  char*  mem_cur;
   size_t mem_size;
 };
 
