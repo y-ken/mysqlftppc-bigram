@@ -1,13 +1,11 @@
-* INSTALL
-Them you must patch mysql. Change directory into the mysql base directory which you extracted from tar-ball.
-$ patch -p1 < mysql-5.1.28-30.patch
-
-Make install the mysqld.
-
 Compile the plugin
 $ configure --with-mysql-config=/path/to/mysql_config
 $ make
 # make install
+
+Issue INSTALL PLUGIN statement and load the library into mysqld server process.
+mysql> INSTALL PLUGIN bigram SONAME 'libftbigram.so'
+
 
 ** From the repository
 If you check out the source from the repository, you need autoconf, automake and libtool 
@@ -23,3 +21,5 @@ $ ./configure --with-mysql-config=/path/to/mysql_config
 $ make
 # make install
 
+Issue INSTALL PLUGIN statement and load the library into mysqld server process.
+mysql> INSTALL PLUGIN bigram SONAME 'libftbigram.so'
