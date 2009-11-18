@@ -14,70 +14,77 @@
 size_t uni_normalize(char* src, size_t src_len, char* dst, size_t dst_capacity, int mode, int opt){
     UNormalizationMode umode = (UNormalizationMode)mode;
     // status holder
-    UErrorCode ustatus=0;
+    UErrorCode ustatus = U_ZERO_ERROR;
     // UChar source
     UChar *s;
-    int32_t s_alloc;
+    int32_t s_length, s_capacity;
     // UChar normalized
     UChar *d;
-    int32_t d_alloc;
-    int32_t d_len;
+    int32_t d_length, d_capacity;
     // UTF8 normalzied
     int32_t dst_alloc;
-    // realloc check
-		UChar *tmp;
-		
+	
     // convert UTF-8 -> UChar
-    s_alloc = (int32_t)src_len*2;
-    s = (UChar*)my_malloc(s_alloc, MYF(MY_WME));
+	u_strFromUTF8(NULL, 0, &s_length, src, (int32_t)src_len, &ustatus);
+	if(U_FAILURE(ustatus) && ustatus!=U_BUFFER_OVERFLOW_ERROR){
+		char buf[1024];
+		sprintf(buf,"ICU u_strFromUTF8(pre-flighting) error with %d\n", ustatus);
+		fputs(buf, stderr); fflush(stderr);
+		return 0;
+	}else{
+	    ustatus = U_ZERO_ERROR;
+	}
+	s_capacity = (s_length+7)/8*8; // for '\0' termination
+    s = (UChar*)my_malloc(s_capacity*sizeof(UChar), MYF(MY_WME));
     if(!s){
-			return 0;
-    }
-    ustatus = 0;
-    s = u_strFromUTF8(s, s_alloc, NULL, src, (int32_t)src_len, &ustatus);
+		fputs("malloc failure\n", stderr); fflush(stderr);
+		return 0;
+	}
+    s = u_strFromUTF8(s, s_length, NULL, src, (int32_t)src_len, &ustatus);
     if(U_FAILURE(ustatus)){
-			ustatus = 0;
-			s_alloc = (size_t)u_strFromUTF8(NULL, 0, NULL, src, (int32_t)src_len, &ustatus) + 4; // prefill
-      tmp = (UChar*)my_realloc(s, s_alloc, MYF(MY_WME));
-      if(!tmp){
-				my_free(s, MYF(0));
-				return 0;
-			}else{
-				s=tmp;
-			}
-      ustatus = 0;
-      s = u_strFromUTF8(s, s_alloc, NULL, src, (int32_t)src_len, &ustatus);
-      if(U_FAILURE(ustatus)){
-				my_free(s, MYF(0));
-				return 0;
-			}
-    }
+		char buf[1024];
+		sprintf(buf,"ICU u_strFromUTF8 error with %d\n", ustatus);
+		fputs(buf, stderr); fflush(stderr);
+		my_free(s, MYF(0));
+		return 0;
+	}else{
+	    ustatus = U_ZERO_ERROR;
+	}
+	
     // normalize
-    d_alloc = strlen((char*)s) + 32;
-    d = (UChar*)my_malloc(d_alloc, MYF(MY_WME));
+	d_length = unorm_normalize(s, s_length, umode, (int32_t)opt, NULL, 0, &ustatus);
+	if(U_FAILURE(ustatus) && ustatus!=U_BUFFER_OVERFLOW_ERROR){
+		char buf[1024];
+		sprintf(buf,"ICU unorm_normalize(pre-flighting) error with %d\n", ustatus);
+		fputs(buf, stderr); fflush(stderr);
+		my_free(s, MYF(0));
+		return 0;
+	}else{
+	    ustatus = U_ZERO_ERROR;
+	}
+	d_capacity = (d_length+7)/8*8;
+    d = (UChar*)my_malloc(d_capacity*sizeof(UChar), MYF(MY_WME));
     if(!d){
-			return 0;
+		fputs("malloc failure\n", stderr); fflush(stderr);
+		my_free(s, MYF(0));
+		return 0;
     }
-    d_len = unorm_normalize(s, -1, umode, (int32_t)opt, d, d_alloc, &ustatus);
-    if(ustatus == U_BUFFER_OVERFLOW_ERROR){
-				d_alloc = d_len + 8;
-        tmp = (UChar*)my_realloc(d, d_alloc, MYF(MY_WME));
-        if(!tmp){
-						my_free(d, MYF(0));
-						return 0;
-        }else{
-					d=tmp;
-				}
-        ustatus = 0;
-        d_len = unorm_normalize(s, -1, mode, (int32_t)opt, d, d_alloc, &ustatus);
-    }
-    my_free(s, MYF(0));
+	d_length = unorm_normalize(s, s_length, umode, (int32_t)opt, d, d_capacity, &ustatus);
+	if(U_FAILURE(ustatus)){
+		char buf[1024];
+		sprintf(buf,"ICU unorm_normalize error with %d\n", ustatus);
+		fputs(buf, stderr); fflush(stderr);
+		my_free(s, MYF(0));
+		my_free(d, MYF(0));
+		return 0;
+	}else{
+	    ustatus = U_ZERO_ERROR;
+	}
+	my_free(s, MYF(0));
+	
     // encode UChar -> UTF-8
-    u_strToUTF8(dst, (int32_t)dst_capacity, NULL, d, d_len, &ustatus);
+    u_strToUTF8(dst, (int32_t)dst_capacity, &dst_alloc, d, d_length, &ustatus);
     my_free(d, MYF(0));
-    if(ustatus == U_BUFFER_OVERFLOW_ERROR){
-			return (size_t)u_strToUTF8(NULL, 0, NULL, d, d_len, &ustatus);
-    }
-		return strlen(dst);
+	return (size_t)dst_alloc;
 }
 #endif
