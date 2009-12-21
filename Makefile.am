@@ -4,7 +4,8 @@ pkgplugindir=@MYSQL_PLUGINDIR@
 INCLUDES= -I$(top_builddir)/include -I$(top_srcdir)/include @MYSQL_INCLUDES@
 #noinst_LTLIBRARIES= mypluglib.la
 pkgplugin_LTLIBRARIES= libftbigram.la
-libftbigram_la_SOURCES= ftnorm.c ftbool.c ftstring.c plugin_bigram.c
+libftbigram_la_SOURCES= reader.cpp buffer.cpp reader_bool.cpp mempool.cpp plugin_bigram.cpp
 libftbigram_la_LDFLAGS= -module -rpath $(pkgplugindir)
 libftbigram_la_CFLAGS= -DMYSQL_DYNAMIC_PLUGIN
+libftbigram_la_CXXFLAGS= -DMYSQL_DYNAMIC_PLUGIN
 

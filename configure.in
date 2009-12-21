@@ -1,6 +1,7 @@
 AC_INIT(plugin_bigram, 1.0)
 AM_INIT_AUTOMAKE
 AC_DISABLE_STATIC
+AC_PROG_CXX
 AC_PROG_LIBTOOL
 
 AC_ARG_WITH([mysql-config],
@@ -10,7 +11,7 @@ AS_IF(
  [test "x$with_mysql_config" != x && MYSQL_VERSION=`$with_mysql_config --version` && test "x$MYSQL_VERSION" != x], 
  [MYSQL_INCLUDES=`$with_mysql_config --include`
   MYSQL_PLUGINDIR=`$with_mysql_config --plugindir`],
- [AC_MSG_ERROR([mysql_config not found. Please specify --with-mysql-config.])])
+ [AC_MSG_ERROR([mysql_config not found (or mysql 5.0.x found). Please specify --with-mysql-config.])])
 AC_SUBST(MYSQL_INCLUDES)
 AC_SUBST(MYSQL_PLUGINDIR)
 
@@ -23,6 +24,7 @@ AS_IF(
  [CPPFLAGS="$CPPFLAGS `$with_icu_config --cppflags`"
   LDFLAGS="$LDFLAGS `$with_icu_config --ldflags`"
   CFLAGS="$CFLAGS -DHAVE_ICU"
+  CXXFLAGS="$CXXFLAGS -DHAVE_ICU"
   AC_MSG_RESULT(yes)],
  [AC_MSG_RESULT(no. icu-config not found. Please specify --with-icu-config.)])
 
