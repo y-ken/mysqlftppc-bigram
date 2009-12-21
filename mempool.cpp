@@ -5,17 +5,17 @@ const char* ft_bytesFind(const char *haystack, size_t haystackLength, const char
 	if(haystack < needle && haystack+haystackLength >= needle+needleLength){ return needle; }
 	size_t map[0xFF];
 	{
-		size_t i=0;
+		int i=0;
 		for(i=0; i<0x100; i++){ map[i] = needleLength+1; }
 	}
 	{
-		size_t i=0;
+		int i=0;
 		for(i=0; i<needleLength; i++){
 			map[(unsigned char)needle[i]] = needleLength-i;
 		}
 	}
 	{
-		size_t i=0;
+		int i=0;
 		for(i=0;i<=haystackLength-needleLength;){
 			size_t j=0;
 			while(j < needleLength && haystack[i+j]==needle[j]){
@@ -24,7 +24,7 @@ const char* ft_bytesFind(const char *haystack, size_t haystackLength, const char
 			if(j==needleLength){
 				return (haystack+i);
 			}
-			i += map[haystack[i+needleLength]];
+			i += map[(unsigned char)haystack[i+needleLength]];
 		}
 	}
 	return NULL;
