@@ -103,7 +103,7 @@ static int bigram_parser_parse(MYSQL_FTPARSER_PARAM *param){
 		int meta;
 		while(reader->readOne(&wc, &meta)){
 			// disable truncation operator in bigram boolean syntax.
-			if(meta|FT_CHAR_TRUNC){ meta = FT_CHAR_NORM; }
+			if(meta&FT_CHAR_TRUNC){ meta = FT_CHAR_NORM; }
 			
 			if(meta==FT_CHAR_NORM){
 				bigramBuffer.append(wc);
@@ -112,23 +112,23 @@ static int bigram_parser_parse(MYSQL_FTPARSER_PARAM *param){
 				bigramBuffer.reset();
 				
 				if(meta==FT_CHAR_CTRL){       info.yesno = 0; }
-				else if(meta|FT_CHAR_YES){    info.yesno = +1; }
-				else if(meta|FT_CHAR_NO){     info.yesno = -1; }
-				else if(meta|FT_CHAR_STRONG){ info.weight_adjust++; }
-				else if(meta|FT_CHAR_WEAK){   info.weight_adjust--; }
-				else if(meta|FT_CHAR_NEG){    info.wasign = !info.wasign; }
+				else if(meta&FT_CHAR_YES){    info.yesno = +1; }
+				else if(meta&FT_CHAR_NO){     info.yesno = -1; }
+				else if(meta&FT_CHAR_STRONG){ info.weight_adjust++; }
+				else if(meta&FT_CHAR_WEAK){   info.weight_adjust--; }
+				else if(meta&FT_CHAR_NEG){    info.wasign = !info.wasign; }
 				
-				if(meta|FT_CHAR_LEFT){
+				if(meta&FT_CHAR_LEFT){
 					info.type = FT_TOKEN_LEFT_PAREN;
-					if(meta|FT_CHAR_QUOT){
+					if(meta&FT_CHAR_QUOT){
 						info.quot = &dummy;
 					}
 					param->mysql_add_word(param, NULL, 0, &info);
 					info.type = FT_TOKEN_WORD;
-				}else if(meta|FT_CHAR_RIGHT){
+				}else if(meta&FT_CHAR_RIGHT){
 					info.type = FT_TOKEN_RIGHT_PAREN;
 					param->mysql_add_word(param, NULL, 0, &info);
-					if(meta|FT_CHAR_QUOT){
+					if(meta&FT_CHAR_QUOT){
 						info.quot = NULL;
 					}
 					info.type = FT_TOKEN_WORD;

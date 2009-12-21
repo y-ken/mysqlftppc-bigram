@@ -2,9 +2,9 @@
 // add bool quot
 
 FtBoolReader::FtBoolReader(FtCharReader *feed){
-	this->strhead = true;
-	this->quot = false;
-	this->src = feed;
+	strhead = true;
+	quot = false;
+	src = feed;
 }
 
 FtBoolReader::~FtBoolReader(){
@@ -38,9 +38,9 @@ bool FtBoolReader::readOne(my_wc_t *wc, int *meta){
 			}else if(*wc==')'){
 				*meta = FT_CHAR_CTRL|FT_CHAR_RIGHT;
 			}else{
+				if(*wc==' '){ *meta = FT_CHAR_CTRL; }
 				if(strhead){
 					if(*wc=='+'){ *meta = FT_CHAR_CTRL|FT_CHAR_YES; }
-					if(*wc==' '){ *meta = FT_CHAR_CTRL; }
 					if(*wc=='-'){ *meta = FT_CHAR_CTRL|FT_CHAR_NO; }
 					if(*wc=='>'){ *meta = FT_CHAR_CTRL|FT_CHAR_STRONG; }
 					if(*wc=='<'){ *meta = FT_CHAR_CTRL|FT_CHAR_WEAK; }
@@ -52,9 +52,9 @@ bool FtBoolReader::readOne(my_wc_t *wc, int *meta){
 		}
 	}
 	if(*meta==FT_CHAR_NORM){
-		this->strhead = false;
+		strhead = false;
 	}else{
-		this->strhead = true;
+		strhead = true;
 	}
 	return true;
 }
