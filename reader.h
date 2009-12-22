@@ -48,17 +48,6 @@ public:
 	void reset();
 };
 
-class FtWideReader : public FtCharReader {
-	const my_wc_t *buffer;
-	size_t bufferLength;
-	const my_wc_t *cursor;
-public:
-	FtWideReader(const my_wc_t *buffer, size_t bufferLength);
-	~FtWideReader();
-	bool readOne(my_wc_t *wc, int *meta);
-	void reset();
-};
-
 
 #if HAVE_ICU
 #include <unicode/chariter.h>

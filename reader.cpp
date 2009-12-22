@@ -15,58 +15,34 @@ void FtCharReader::reset(){}
 
 
 FtMemReader::FtMemReader(const char* buffer, std::size_t bufferLength, CHARSET_INFO *cs){
-	this->directBuffer = buffer;
-	this->directBufferLength =bufferLength;
+	cursor = directBuffer = buffer;
+	directBufferLength =bufferLength;
 	this->cs = cs;
-	this->cursor = this->directBuffer;
 }
 
 FtMemReader::~FtMemReader(){}
 
 bool FtMemReader::readOne(my_wc_t *wc, int *meta){
-	if(this->cursor >= this->directBuffer+directBufferLength){
+	if(cursor >= directBuffer+directBufferLength){
 		*wc = FT_EOS;
 		*meta = FT_CHAR_CTRL;
 		return FALSE;
 	}
 	*meta = FT_CHAR_NORM;
-	int cnvres=this->cs->cset->mb_wc(cs, wc, (uchar*)this->cursor, (uchar*)(this->directBuffer+directBufferLength));
+	int cnvres=cs->cset->mb_wc(cs, wc, (uchar*)cursor, (uchar*)(directBuffer+directBufferLength));
 	if(cnvres > 0){
-		this->cursor+=cnvres;
+		cursor+=cnvres;
 	}else{
-		this->cursor++;
+		cursor++;
 		*wc='?';
 	}
 	return true;
 }
 
 void FtMemReader::reset(){
-	this->cursor = this->directBuffer;
+	cursor = directBuffer;
 }
 
-FtWideReader::FtWideReader(const my_wc_t *buffer, size_t bufferLength){
-	this->cursor = buffer;
-	this->buffer = buffer;
-	this->bufferLength = bufferLength;
-}
-
-FtWideReader::~FtWideReader(){}
-
-bool FtWideReader::readOne(my_wc_t *wc, int *meta){
-	if(this->cursor < this->buffer+this->bufferLength){
-		*wc = *(this->cursor);
-		*meta = FT_CHAR_NORM;
-		this->cursor++;
-		return true;
-	}
-	*wc = FT_EOS;
-	*meta = FT_CHAR_CTRL;
-	return false;
-}
-
-void FtWideReader::reset(){
-	this->cursor = this->buffer;
-}
 
 #if HAVE_ICU
 
@@ -75,7 +51,7 @@ WcIterator::WcIterator(FtCharReader *internal, int32_t internalLength, int32_t i
 	feed = internal;
 	control = 0;
 	controlLength = 0;
-	cache = new UnicodeString(0, (UChar32)0xFFFF, 0);
+	cache = new UnicodeString(FT_CODEPOINTS_CAPACITY, (UChar32)0xFFFF, 0);
 	cacheIterator = new StringCharacterIterator(const_cast<UnicodeString&>(*cache));
 	formerLength = 0;
 	former32Length = 0;
@@ -92,7 +68,7 @@ WcIterator::WcIterator(FtCharReader *internal){
 	feed = internal;
 	control = 0;
 	controlLength = 0;
-	cache = new UnicodeString(0, (UChar32)0xFFFF, 0);
+	cache = new UnicodeString(FT_CODEPOINTS_CAPACITY, (UChar32)0xFFFF, 0);
 	cacheIterator = new StringCharacterIterator(const_cast<UnicodeString&>(*cache));
 	formerLength = 0;
 	former32Length = 0;
@@ -444,8 +420,8 @@ void WcIterator::getText(UnicodeString &result){
 
 int WcIterator::getPreviousControlMeta(){
 //	fprintf(stderr,"WcIterator::getPreviousControlMeta\n"); fflush(stderr);
-	if(this->control>0){
-		return this->metas[this->control-1];
+	if(control>0){
+		return metas[control-1];
 	}else{
 		// maybe reached at heading of the string.
 		return FT_CHAR_CTRL;
