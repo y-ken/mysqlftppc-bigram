@@ -31,9 +31,9 @@
 
 class FtCharReader {
 public:
-	virtual ~FtCharReader(){};
-	virtual bool readOne(my_wc_t *wc, int *meta){};
-	virtual void reset(){};
+	virtual ~FtCharReader();
+	virtual bool readOne(my_wc_t *wc, int *meta);
+	virtual void reset();
 };
 
 class FtMemReader : public FtCharReader {
@@ -65,20 +65,27 @@ public:
 #include <unicode/normlzr.h>
 #include <unicode/schriter.h>
 
+// initial capacity may be the other value.
+#define FT_CODEPOINTS_CAPACITY 32
+
 class WcIterator : public CharacterIterator {
-	FtCharReader *reader;
-	int control; // control char index
-	int controlLength;
-	int *metas; // metainfo for control chars
+	FtCharReader *feed;
+	
+	// mirrored cache
 	UnicodeString *cache;
 	StringCharacterIterator *cacheIterator;
+	int control; // control char index
+	int controlLength;
+	int metas[FT_CODEPOINTS_CAPACITY]; // metainfo for control chars
 	size_t formerLength;
 	size_t former32Length;
 	bool eoc; // End Of Cache (reached final cache)
-private:
 	void mirror();
+	// UChar32 version of textLength
+	int32_t textLength32;
 public:
 	WcIterator(FtCharReader *internal);
+	WcIterator(FtCharReader *internal, int32_t internalLength, int32_t internalLength32);
 	~WcIterator();
 	// FowardCharacterIterator
 	UBool operator== (const ForwardCharacterIterator &that) const;
@@ -109,7 +116,6 @@ public:
 	void getText(UnicodeString &result);
 	// WcIterator
 	void reset();
-	bool isEnd();
 	int getPreviousControlMeta();
 };
 

@@ -5,28 +5,28 @@
 
 FtMemBuffer::FtMemBuffer(CHARSET_INFO *cs){
 	this->cs = cs;
-	this->cursor = 0;
-	this->bufferLength = FT_INITIAL_BUFFER;
-	this->buffer = (char*)malloc(sizeof(char)*this->bufferLength);
+	cursor = 0;
+	bufferLength = FT_INITIAL_BUFFER;
+	buffer = (char*)malloc(sizeof(char)*bufferLength);
 }
 
 FtMemBuffer::~FtMemBuffer(){
-	free(this->buffer);
+	free(buffer);
 }
 
 void FtMemBuffer::append(my_wc_t wc){
-	if(this->cursor + this->cs->mbmaxlen > this->bufferLength){
-		this->bufferLength *= 2;
-		this->buffer = (char*)realloc(this->buffer, sizeof(char)*this->bufferLength);
+	if(cursor + cs->mbmaxlen > bufferLength){
+		bufferLength *= 2;
+		buffer = (char*)realloc(buffer, sizeof(char)*bufferLength);
 	}
-	if(this->buffer){
-		int cnvres = this->cs->cset->wc_mb(this->cs, wc, (uchar*)(this->buffer+this->cursor), (uchar*)(this->buffer+this->bufferLength));
+	if(buffer){
+		int cnvres = cs->cset->wc_mb(cs, wc, (uchar*)(buffer+cursor), (uchar*)(buffer+bufferLength));
 		if(cnvres>0){
-			this->cursor += cnvres;
+			cursor += cnvres;
 		}else{
 			// error_log ?
-			this->buffer[this->cursor]='?';
-			this->cursor++;
+			buffer[cursor]='?';
+			cursor++;
 		}
 	}
 }
@@ -34,19 +34,19 @@ void FtMemBuffer::append(my_wc_t wc){
 void FtMemBuffer::flush(){}
 
 void FtMemBuffer::reset(){
-	this->cursor = 0;
+	cursor = 0;
 }
 
 char* FtMemBuffer::getBuffer(size_t *length, size_t *capacity){
-	*length = this->cursor;
-	*capacity = this->bufferLength;
-	return this->buffer;
+	*length = cursor;
+	*capacity = bufferLength;
+	return buffer;
 }
 
 bool FtMemBuffer::detach(){
-	this->cursor = 0;
-	this->bufferLength = FT_INITIAL_BUFFER;
-	this->buffer = (char*)malloc(sizeof(char)*this->bufferLength);
+	cursor = 0;
+	bufferLength = FT_INITIAL_BUFFER;
+	buffer = (char*)malloc(sizeof(char)*bufferLength);
 	return true;
 }
 

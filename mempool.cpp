@@ -81,13 +81,13 @@ const char* FtMemPool::findPool(const char* haystack, size_t haystackLength, con
 	for(std::vector<FtMemHeap*>::iterator it=heaps.begin(); it!=heaps.end(); ++it){
 		FtMemHeap *o = *it;
 		int shared = ft_findShared(o->head, o->length, o->capacity, needle, needleLength);
-		if(shared>0){
+		if(shared>=0){
 			int i;
 			for(i=0;i<needleLength-shared;i++){
 				o->head[o->length+i]=needle[shared+i];
 			}
 			o->length = o->length+shared;
-			return o->head-shared;
+			return o->head+o->length-needleLength;
 		}
 	}
 	return NULL;

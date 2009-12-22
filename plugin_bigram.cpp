@@ -65,7 +65,27 @@ static int bigram_parser_deinit(MYSQL_FTPARSER_PARAM *param __attribute__((unuse
 	return 0;
 }
 
+/*
+void dumpInfo(MYSQL_FTPARSER_BOOLEAN_INFO *info){
+	char a = '_';
+	if(info->quot){ a=*(info->quot); }
+	fprintf(stderr, "parser_info type:%d yesno:%d weight_adjust:%d wasign:%d trunc:%d byte:%c quot:%c\n",
+			info->type, info->yesno, info->weight_adjust, info->wasign, info->trunc, info->prev, a);
+	fflush(stderr);
+}
+void dumpChars(const char *head, size_t length){
+	int i;
+	for(i=0;i<length;i++){
+		fprintf(stderr,"%x ",(unsigned char)head[i]);
+	}
+	fprintf(stderr,"\n");
+	fflush(stderr);
+}
+*/
+
 static int bigram_parser_parse(MYSQL_FTPARSER_PARAM *param){
+//fprintf(stderr,"input:  ");
+//dumpChars(const_cast<char*>(param->doc), (size_t)param->length);
 	FtCharReader *reader;
 	FtMemReader memReader(const_cast<char*>(param->doc), (size_t)param->length, param->cs);
 	reader = &memReader;
@@ -73,12 +93,11 @@ static int bigram_parser_parse(MYSQL_FTPARSER_PARAM *param){
 	MYSQL_FTPARSER_BOOLEAN_INFO info = { FT_TOKEN_WORD, 1, 0, 0, 0, ' ', 0 };
 	
 	if(param->mode == MYSQL_FTPARSER_FULL_BOOLEAN_INFO){
-//fprintf(stderr, "MYSQL_FTPARSER_FULL_BOOLEAN_INFO\n");
-//fflush(stderr);
 		FtBoolReader boolParser(reader);
 		reader = &boolParser;
 #if HAVE_ICU
 		// normalize
+		FtNormalizerReader *normReader = NULL;
 		if(bigram_unicode_normalize && strcmp(bigram_unicode_normalize, "OFF")!=0){
 			UNormalizationMode mode = UNORM_NONE;
 			if(strcmp(bigram_unicode_normalize, "C")==0) mode = UNORM_NFC;
@@ -87,11 +106,11 @@ static int bigram_parser_parse(MYSQL_FTPARSER_PARAM *param){
 			if(strcmp(bigram_unicode_normalize, "KD")==0) mode = UNORM_NFKD;
 			if(strcmp(bigram_unicode_normalize, "FCD")==0) mode = UNORM_FCD;
 		
-			FtNormalizerReader normReader(reader, mode);
+			normReader = new FtNormalizerReader(reader, mode);
 			if(bigram_unicode_version && strcmp(bigram_unicode_version, "3.2")==0){
-				normReader.setOption(UNORM_UNICODE_3_2, TRUE);
+				normReader->setOption(UNORM_UNICODE_3_2, TRUE);
 			}
-			reader = &normReader;
+			reader = normReader;
 		}
 #endif
 		
@@ -136,11 +155,15 @@ static int bigram_parser_parse(MYSQL_FTPARSER_PARAM *param){
 			}
 		}
 		bigramBuffer.flush();
+#if HAVE_ICU
+		if(normReader){
+			delete normReader;
+		}
+#endif
 	}else{
-//fprintf(stderr, "non MYSQL_FTPARSER_FULL_BOOLEAN_INFO\n");
-//fflush(stderr);
 #if HAVE_ICU
 		// normalize
+		FtNormalizerReader *normReader = NULL;
 		if(bigram_unicode_normalize && strcmp(bigram_unicode_normalize, "OFF")!=0){
 			UNormalizationMode mode = UNORM_NONE;
 			if(strcmp(bigram_unicode_normalize, "C")==0) mode = UNORM_NFC;
@@ -149,11 +172,11 @@ static int bigram_parser_parse(MYSQL_FTPARSER_PARAM *param){
 			if(strcmp(bigram_unicode_normalize, "KD")==0) mode = UNORM_NFKD;
 			if(strcmp(bigram_unicode_normalize, "FCD")==0) mode = UNORM_FCD;
 		
-			FtNormalizerReader normReader(reader, mode);
+			normReader = new FtNormalizerReader(reader, mode);
 			if(bigram_unicode_version && strcmp(bigram_unicode_version, "3.2")==0){
-				normReader.setOption(UNORM_UNICODE_3_2, TRUE);
+				normReader->setOption(UNORM_UNICODE_3_2, TRUE);
 			}
-			reader = &normReader;
+			reader = normReader;
 		}
 #endif
 		BigramBuffer bigramBuffer(param);
@@ -165,19 +188,15 @@ static int bigram_parser_parse(MYSQL_FTPARSER_PARAM *param){
 			bigramBuffer.append(wc);
 		}
 		bigramBuffer.flush();
+#if HAVE_ICU
+		if(normReader){
+			delete normReader;
+		}
+#endif
 	}
 	return 0;
 }
 
-/**
-void dumpInfo(MYSQL_FTPARSER_BOOLEAN_INFO *info){
-	char a = '_';
-	if(info->quot){ a=*(info->quot); }
-	fprintf(stderr, "parser_info type:%d yesno:%d weight_adjust:%d wasign:%d trunc:%d byte:%c quot:%c\n",
-			info->type, info->yesno, info->weight_adjust, info->wasign, info->trunc, info->prev, a);
-	fflush(stderr);
-}
-*/
 
 BigramBuffer::BigramBuffer(MYSQL_FTPARSER_PARAM *param){
 	this->param = param;
@@ -206,6 +225,8 @@ void BigramBuffer::tokenFlush(){
 	size_t bigramLength;
 	size_t capacity;
 	char *bigram = membuffer->getBuffer(&bigramLength, &capacity);
+//fprintf(stderr,"output: ");
+//dumpChars(bigram, bigramLength);
 	
 	if(bigramLength > 0){
 		// string find
@@ -216,7 +237,7 @@ void BigramBuffer::tokenFlush(){
 			if(info){ param->mysql_add_word(param, (char*)save, bigramLength, info); }
 		}else{
 			membuffer->detach();
-//			dumpInfo(info);
+//			if(info) dumpInfo(info);
 			if(info){ param->mysql_add_word(param, bigram, bigramLength, info); }
 			pool->addHeap(new FtMemHeap(bigram, bigramLength, capacity));
 		}
@@ -229,7 +250,7 @@ void BigramBuffer::append(my_wc_t wc){
 			bigramQuote = true;
 			info->quot = &dummy;
 			info->type = FT_TOKEN_LEFT_PAREN;
-//			dumpInfo(info);
+//			if(info) dumpInfo(info);
 			if(info){ param->mysql_add_word(param, NULL, 0, info); }
 			info->type = FT_TOKEN_WORD;
 		}
