@@ -31,9 +31,9 @@
 
 class FtCharReader {
 public:
-	virtual ~FtCharReader();
-	virtual bool readOne(my_wc_t *wc, int *meta);
-	virtual void reset();
+	virtual ~FtCharReader(){};
+	virtual bool readOne(my_wc_t *wc, int *meta) = 0;
+	virtual void reset() = 0;
 };
 
 class FtMemReader : public FtCharReader {

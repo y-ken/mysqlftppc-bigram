@@ -1,18 +1,6 @@
 #include "reader.h"
 
-#include <cstdio>
-
-FtCharReader::~FtCharReader(){}
-
-bool FtCharReader::readOne(my_wc_t *wc, int *meta){
-fprintf(stderr, "FtCharReader::readOne\n"); fflush(stderr);
-	*wc = FT_EOS;
-	*meta = FT_CHAR_CTRL;
-	return false;
-}
-
-void FtCharReader::reset(){}
-
+// #include <cstdio>
 
 FtMemReader::FtMemReader(const char* buffer, std::size_t bufferLength, CHARSET_INFO *cs){
 	cursor = directBuffer = buffer;
