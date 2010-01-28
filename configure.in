@@ -8,10 +8,15 @@ AC_ARG_WITH([mysql-config],
  [AS_HELP_STRING([--with-mysql-config],[compile for specified mysql])],
  [],[with_mysql_config=mysql_config])
 AS_IF(
- [test "x$with_mysql_config" != x && MYSQL_VERSION=`$with_mysql_config --version` && test "x$MYSQL_VERSION" != x], 
- [MYSQL_INCLUDES=`$with_mysql_config --include`
-  MYSQL_PLUGINDIR=`$with_mysql_config --plugindir`],
- [AC_MSG_ERROR([mysql_config not found (or mysql 5.0.x found). Please specify --with-mysql-config.])])
+ [test "x$with_mysql_config" != x && MYSQL_VERSION=`$with_mysql_config --version` ],
+ [AS_IF(
+   [ test "x$MYSQL_VERSION" != x \
+     && test `echo $MYSQL_VERSION | cut -c1` != '4' \
+     && test `echo $MYSQL_VERSION | cut -c1-3` != '5.0'],
+   [MYSQL_INCLUDES=`$with_mysql_config --include`
+    MYSQL_PLUGINDIR=`$with_mysql_config --plugindir`],
+   [AC_MSG_ERROR([mysql must be 5.1 or later.])])], 
+ [AC_MSG_ERROR([mysql_config not found. Please specify --with-mysql-config.])])
 AC_SUBST(MYSQL_INCLUDES)
 AC_SUBST(MYSQL_PLUGINDIR)
 
