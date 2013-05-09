@@ -46,7 +46,7 @@ void ftstring_reset(FTSTRING *str){
 
 void ftstring_destroy(FTSTRING *str){
   if(str->buffer){
-    my_free(str->buffer, MYF(0));
+    my_free(str->buffer);
   }
 }
 

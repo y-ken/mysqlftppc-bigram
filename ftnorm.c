@@ -45,7 +45,7 @@ size_t uni_normalize(char* src, size_t src_len, char* dst, size_t dst_capacity, 
 		char buf[1024];
 		sprintf(buf,"ICU u_strFromUTF8 error with %d\n", ustatus);
 		fputs(buf, stderr); fflush(stderr);
-		my_free(s, MYF(0));
+		my_free(s);
 		return 0;
 	}else{
 	    ustatus = U_ZERO_ERROR;
@@ -57,7 +57,7 @@ size_t uni_normalize(char* src, size_t src_len, char* dst, size_t dst_capacity, 
 		char buf[1024];
 		sprintf(buf,"ICU unorm_normalize(pre-flighting) error with %d\n", ustatus);
 		fputs(buf, stderr); fflush(stderr);
-		my_free(s, MYF(0));
+		my_free(s);
 		return 0;
 	}else{
 	    ustatus = U_ZERO_ERROR;
@@ -66,7 +66,7 @@ size_t uni_normalize(char* src, size_t src_len, char* dst, size_t dst_capacity, 
     d = (UChar*)my_malloc(d_capacity*sizeof(UChar), MYF(MY_WME));
     if(!d){
 		fputs("malloc failure\n", stderr); fflush(stderr);
-		my_free(s, MYF(0));
+		my_free(s);
 		return 0;
     }
 	d_length = unorm_normalize(s, s_length, umode, (int32_t)opt, d, d_capacity, &ustatus);
@@ -74,17 +74,17 @@ size_t uni_normalize(char* src, size_t src_len, char* dst, size_t dst_capacity, 
 		char buf[1024];
 		sprintf(buf,"ICU unorm_normalize error with %d\n", ustatus);
 		fputs(buf, stderr); fflush(stderr);
-		my_free(s, MYF(0));
-		my_free(d, MYF(0));
+		my_free(s);
+		my_free(d);
 		return 0;
 	}else{
 	    ustatus = U_ZERO_ERROR;
 	}
-	my_free(s, MYF(0));
+	my_free(s);
 	
     // encode UChar -> UTF-8
     u_strToUTF8(dst, (int32_t)dst_capacity, &dst_alloc, d, d_length, &ustatus);
-    my_free(d, MYF(0));
+    my_free(d);
 	return (size_t)dst_alloc;
 }
 #endif
