@@ -270,8 +270,6 @@ static int bigram_add_word(MYSQL_FTPARSER_PARAM *param, FTSTRING *pbuffer, CHARS
 
 static int bigram_parser_parse(MYSQL_FTPARSER_PARAM *param)
 {
-  DBUG_ENTER("bigram_parser_parse");
-
   char* feed = param->doc;
   size_t feed_length = (size_t)param->length;
   int feed_req_free = 0;
@@ -313,7 +311,7 @@ static int bigram_parser_parse(MYSQL_FTPARSER_PARAM *param)
         fflush(stderr);
         
         if(feed_req_free){ my_free(feed); }
-        DBUG_RETURN(FTPPC_NORMALIZATION_ERROR);
+        return FTPPC_NORMALIZATION_ERROR;
       }else if(nm_used > nm_length){
         nm_length = nm_used + 8;
         char *tmp = my_realloc(nm, nm_length, MYF(MY_WME));
@@ -322,7 +320,7 @@ static int bigram_parser_parse(MYSQL_FTPARSER_PARAM *param)
         }else{
           if(feed_req_free){ my_free(feed); }
           my_free(nm);
-          DBUG_RETURN(FTPPC_MEMORY_ERROR);
+          return FTPPC_MEMORY_ERROR;
         }
         nm_used = uni_normalize(feed, feed_length, nm, nm_length, mode, options);
         if(nm_used == 0){
@@ -331,7 +329,7 @@ static int bigram_parser_parse(MYSQL_FTPARSER_PARAM *param)
           
           if(feed_req_free){ my_free(feed); }
           my_free(nm);
-          DBUG_RETURN(FTPPC_NORMALIZATION_ERROR);
+          return FTPPC_NORMALIZATION_ERROR;
         }
       }
       if(feed_req_free){ my_free(feed); }
@@ -407,7 +405,7 @@ static int bigram_parser_parse(MYSQL_FTPARSER_PARAM *param)
         if(tmp){ my_free(tmp); }
         list_pop(infos);
         if(!infos){
-          DBUG_RETURN(FTPPC_SYNTAX_ERROR);
+          return FTPPC_SYNTAX_ERROR;
         } // must not reach the base info_may level.
         instinfo = *((MYSQL_FTPARSER_BOOLEAN_INFO*)infos->data);
       }
@@ -442,7 +440,7 @@ static int bigram_parser_parse(MYSQL_FTPARSER_PARAM *param)
   }
   ftstring_destroy(pbuffer);
   if(feed_req_free){ my_free(feed); }
-  DBUG_RETURN(0);
+  return 0;
 }
 
 int bigram_unicode_version_check(MYSQL_THD thd, struct st_mysql_sys_var *var, void *save, struct st_mysql_value *value){
